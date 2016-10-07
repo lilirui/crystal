@@ -78,7 +78,7 @@ private def it_lexes_char(string, value)
     lexer = Lexer.new string
     token = lexer.next_token
     token.type.should eq(:CHAR)
-    (token.value as Char).should eq(value)
+    token.value.as(Char).should eq(value)
   end
 end
 
@@ -126,22 +126,22 @@ describe "Lexer" do
   it_lexes "\n\n\n", :NEWLINE
   it_lexes "_", :UNDERSCORE
   it_lexes_keywords [:def, :if, :else, :elsif, :end, :true, :false, :class, :module, :include,
-                     :extend, :while, :until, :nil, :do, :yield, :return, :unless, :next, :break,
-                     :begin, :lib, :fun, :type, :struct, :union, :enum, :macro, :out, :require,
-                     :case, :when, :then, :of, :abstract, :rescue, :ensure, :is_a?, :alias,
-                     :pointerof, :sizeof, :instance_sizeof, :ifdef, :as, :typeof, :for, :in,
-                     :with, :self, :super, :private, :protected, :asm]
+    :extend, :while, :until, :nil, :do, :yield, :return, :unless, :next, :break,
+    :begin, :lib, :fun, :type, :struct, :union, :enum, :macro, :out, :require,
+    :case, :when, :select, :then, :of, :abstract, :rescue, :ensure, :is_a?, :alias,
+    :pointerof, :sizeof, :instance_sizeof, :ifdef, :as, :as?, :typeof, :for, :in,
+    :with, :self, :super, :private, :protected, :asm, :uninitialized, :nil?]
   it_lexes_idents ["ident", "something", "with_underscores", "with_1", "foo?", "bar!", "fooBar",
-                   "❨╯°□°❩╯︵┻━┻"]
+    "❨╯°□°❩╯︵┻━┻"]
   it_lexes_idents ["def?", "if?", "else?", "elsif?", "end?", "true?", "false?", "class?", "while?",
-                   "nil?", "do?", "yield?", "return?", "unless?", "next?", "break?", "begin?"]
+    "do?", "yield?", "return?", "unless?", "next?", "break?", "begin?"]
   it_lexes_idents ["def!", "if!", "else!", "elsif!", "end!", "true!", "false!", "class!", "while!",
-                   "nil!", "do!", "yield!", "return!", "unless!", "next!", "break!", "begin!"]
+    "nil!", "do!", "yield!", "return!", "unless!", "next!", "break!", "begin!"]
   it_lexes_i32 ["1", ["0i32", "0"], ["1hello", "1"], "+1", "-1", "1234", "+1234", "-1234",
-                ["1.foo", "1"], ["1_000", "1000"], ["100_000", "100000"]]
+    ["1.foo", "1"], ["1_000", "1000"], ["100_000", "100000"]]
   it_lexes_i64 [["1i64", "1"], ["1_i64", "1"], ["1i64hello", "1"], ["+1_i64", "+1"], ["-1_i64", "-1"]]
   it_lexes_f32 [["0f32", "0"], ["0_f32", "0"], ["1.0f32", "1.0"], ["1.0f32hello", "1.0"],
-                ["+1.0f32", "+1.0"], ["-1.0f32", "-1.0"], ["-0.0f32", "-0.0"], ["1_234.567_890_f32", "1234.567890"]]
+    ["+1.0f32", "+1.0"], ["-1.0f32", "-1.0"], ["-0.0f32", "-0.0"], ["1_234.567_890_f32", "1234.567890"]]
   it_lexes_f64 ["1.0", ["1.0hello", "1.0"], "+1.0", "-1.0", ["1_234.567_890", "1234.567890"]]
   it_lexes_f32 [["1e+23_f32", "1e+23"], ["1.2e+23_f32", "1.2e+23"]]
   it_lexes_f64 ["1e23", "1e-23", "1e+23", "1.2e+23", ["1e23f64", "1e23"], ["1.2e+23_f64", "1.2e+23"]]
@@ -185,6 +185,11 @@ describe "Lexer" do
   it_lexes_number :i32, ["+0xFFFF", "+65535"]
   it_lexes_number :i32, ["-0xFFFF", "-65535"]
 
+  it_lexes_number :i64, ["0x80000001", "2147483649"]
+  it_lexes_number :i64, ["-0x80000001", "-2147483649"]
+  it_lexes_number :i64, ["0xFFFFFFFF", "4294967295"]
+  it_lexes_number :i64, ["-0xFFFFFFFF", "-4294967295"]
+
   it_lexes_number :u64, ["0xFFFF_u64", "65535"]
 
   it_lexes_i32 [["0o123", "83"], ["-0o123", "-83"], ["+0o123", "+83"]]
@@ -221,12 +226,14 @@ describe "Lexer" do
   it_lexes_char "'\\10'", 8.chr
   it_lexes_char "'\\110'", 72.chr
   it_lexes_char "'\\8'", '8'
+  assert_syntax_error "'", "unterminated char literal"
+  assert_syntax_error "'\\", "unterminated char literal"
   it_lexes_operators [:"=", :"<", :"<=", :">", :">=", :"+", :"-", :"*", :"(", :")",
-                      :"==", :"!=", :"=~", :"!", :",", :".", :"..", :"...", :"&&", :"||",
-                      :"|", :"{", :"}", :"?", :":", :"+=", :"-=", :"*=", :"/=", :"%=", :"&=",
-                      :"|=", :"^=", :"**=", :"<<", :">>", :"%", :"&", :"|", :"^", :"**", :"<<=",
-                      :">>=", :"~", :"[]", :"[]=", :"[", :"]", :"::", :"<=>", :"=>", :"||=",
-                      :"&&=", :"===", :";", :"->", :"[]?", :"{%", :"{{", :"%}", :"@[", :"!~"]
+    :"==", :"!=", :"=~", :"!", :",", :".", :"..", :"...", :"&&", :"||",
+    :"|", :"{", :"}", :"?", :":", :"+=", :"-=", :"*=", :"%=", :"&=",
+    :"|=", :"^=", :"**=", :"<<", :">>", :"%", :"&", :"|", :"^", :"**", :"<<=",
+    :">>=", :"~", :"[]", :"[]=", :"[", :"]", :"::", :"<=>", :"=>", :"||=",
+    :"&&=", :"===", :";", :"->", :"[]?", :"{%", :"{{", :"%}", :"@[", :"!~"]
   it_lexes "!@foo", :"!"
   it_lexes "+@foo", :"+"
   it_lexes "-@foo", :"-"
@@ -235,8 +242,9 @@ describe "Lexer" do
   it_lexes_class_var "@@foo"
   it_lexes_globals ["$foo", "$FOO", "$_foo", "$foo123"]
   it_lexes_symbols [":foo", ":foo!", ":foo?", ":\"foo\"", ":かたな", ":+", ":-", ":*", ":/",
-                    ":==", ":<", ":<=", ":>", ":>=", ":!", ":!=", ":=~", ":!~", ":&", ":|",
-                    ":^", ":~", ":**", ":>>", ":<<", ":%", ":[]", ":[]?", ":[]=", ":<=>", ":==="]
+    ":==", ":<", ":<=", ":>", ":>=", ":!", ":!=", ":=~", ":!~", ":&", ":|",
+    ":^", ":~", ":**", ":>>", ":<<", ":%", ":[]", ":[]?", ":[]=", ":<=>", ":===",
+  ]
   it_lexes_global_match_data_index ["$1", "$10", "$1?", "$23?"]
 
   it_lexes "$~", :"$~"
@@ -351,14 +359,14 @@ describe "Lexer" do
     lexer = Lexer.new "'á'"
     token = lexer.next_token
     token.type.should eq(:CHAR)
-    (token.value as Char).ord.should eq(225)
+    token.value.as(Char).ord.should eq(225)
   end
 
   it "lexes utf-8 multibyte char" do
     lexer = Lexer.new "'日'"
     token = lexer.next_token
     token.type.should eq(:CHAR)
-    (token.value as Char).ord.should eq(26085)
+    token.value.as(Char).ord.should eq(26085)
   end
 
   it "doesn't raise if slash r with slash n" do
@@ -383,28 +391,28 @@ describe "Lexer" do
     lexer = Lexer.new "'\\uFEDA'"
     token = lexer.next_token
     token.type.should eq(:CHAR)
-    (token.value as Char).ord.should eq(0xFEDA)
+    token.value.as(Char).ord.should eq(0xFEDA)
   end
 
   it "lexes char with unicode codepoint and curly with zeros" do
     lexer = Lexer.new "'\\u{0}'"
     token = lexer.next_token
     token.type.should eq(:CHAR)
-    (token.value as Char).ord.should eq(0)
+    token.value.as(Char).ord.should eq(0)
   end
 
   it "lexes char with unicode codepoint and curly" do
     lexer = Lexer.new "'\\u{A5}'"
     token = lexer.next_token
     token.type.should eq(:CHAR)
-    (token.value as Char).ord.should eq(0xA5)
+    token.value.as(Char).ord.should eq(0xA5)
   end
 
   it "lexes char with unicode codepoint and curly with six hex digits" do
     lexer = Lexer.new "'\\u{10FFFF}'"
     token = lexer.next_token
     token.type.should eq(:CHAR)
-    (token.value as Char).ord.should eq(0x10FFFF)
+    token.value.as(Char).ord.should eq(0x10FFFF)
   end
 
   it "lexes float then zero (bug)" do
@@ -414,6 +422,27 @@ describe "Lexer" do
     token = lexer.next_token
     token.type.should eq(:NUMBER)
     token.number_kind.should eq(:i32)
+  end
+
+  it "lexes symbol with quote" do
+    lexer = Lexer.new %(:"\\"")
+    token = lexer.next_token
+    token.type.should eq(:SYMBOL)
+    token.value.should eq("\"")
+  end
+
+  it "lexes symbol with backslash (#2187)" do
+    lexer = Lexer.new %(:"\\\\")
+    token = lexer.next_token
+    token.type.should eq(:SYMBOL)
+    token.value.should eq("\\")
+  end
+
+  it "lexes /=" do
+    lexer = Lexer.new("/=")
+    lexer.slash_is_regex = false
+    token = lexer.next_token
+    token.type.should eq(:"/=")
   end
 
   assert_syntax_error "'\\uFEDZ'", "expected hexadecimal character in unicode escape"

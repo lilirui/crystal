@@ -229,4 +229,78 @@ describe "Code gen: enum" do
       Foo::Bar.value
       )).to_i.should eq(~1)
   end
+
+  it "uses enum value before declaration (hoisting)" do
+    run(%(
+      x = Bar.bar
+
+      enum Foo
+        A = 1
+      end
+
+      class Bar
+        def self.bar
+          Foo::A
+        end
+      end
+
+      x
+      )).to_i.should eq(1)
+  end
+
+  it "casts All value to base type" do
+    run(%(
+      @[Flags]
+      enum Foo
+        A = 1 << 30
+        B = 1 << 31
+      end
+
+      Foo::All.value
+      )).to_i.should eq(-1073741824)
+  end
+
+  it "can use macro calls inside enum value (#424)" do
+    run(%(
+      enum Foo
+        macro bar
+          10 + 20
+        end
+
+        A = bar
+      end
+
+      Foo::A.value
+      )).to_i.should eq(30)
+  end
+
+  it "can use macro calls inside enum value, macro defined outside enum (#424)" do
+    run(%(
+      macro bar
+        10 + 20
+      end
+
+      enum Foo
+        A = bar
+      end
+
+      Foo::A.value
+      )).to_i.should eq(30)
+  end
+
+  it "can use macro calls inside enum value, with receiver (#424)" do
+    run(%(
+      module Moo
+        macro bar
+          10 + 20
+        end
+      end
+
+      enum Foo
+        A = Moo.bar
+      end
+
+      Foo::A.value
+      )).to_i.should eq(30)
+  end
 end

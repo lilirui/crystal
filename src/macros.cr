@@ -4,39 +4,82 @@
 # in the same order as declared. The struct only provides getters,
 # not setters, making it immutable by default.
 #
+# The properties can be type declarations or assignments.
+#
 # You can pass a block to this macro, that will be inserted inside
 # the struct definition.
 #
 # ```
-# record Point, x, y
+# record Point, x : Int32, y : Int32
 #
 # point = Point.new 1, 2
-# point.to_s #=> "Point(@x=1, @y=2)"
+# point.to_s # => "Point(@x=1, @y=2)"
 # ```
 #
 # An example with the block version:
 #
 # ```
-# record Person, first_name, last_name do
+# record Person, first_name : String, last_name : String do
 #   def full_name
 #     "#{first_name} #{last_name}"
 #   end
 # end
 #
 # person = Person.new "John", "Doe"
-# person.full_name #=> "John Doe"
+# person.full_name # => "John Doe"
+# ```
+#
+# An example with type declarations and default values:
+#
+# ```
+# record Point, x : Int32 = 0, y : Int32 = 0
+#
+# Point.new      # => Point(@x=0, @y=0)
+# Point.new y: 2 # => Point(@x=0, @y=2)
+# ```
+#
+# An example with assignments (in this case the compiler must be able to
+# infer the types from the default values):
+#
+# ```
+# record Point, x = 0, y = 0
+#
+# Point.new      # => Point(@x=0, @y=0)
+# Point.new y: 2 # => Point(@x=0, @y=2)
 # ```
 macro record(name, *properties)
   struct {{name.id}}
-    getter {{*properties}}
+    {% for property in properties %}
+      {% if property.is_a?(Assign) %}
+        getter {{property.target.id}}
+      {% elsif property.is_a?(TypeDeclaration) %}
+        getter {{property.var}} : {{property.type}}
+      {% else %}
+        getter :{{property.id}}
+      {% end %}
+    {% end %}
 
-    def initialize({{ *properties.map { |field| "@#{field.id}".id } }})
+    def initialize({{
+                     *properties.map do |field|
+                       "@#{field.id}".id
+                     end
+                   }})
     end
 
     {{yield}}
 
     def clone
-      {{name.id}}.new({{ *properties.map { |field| "@#{field.id}.clone".id } }})
+      {{name.id}}.new({{
+                        *properties.map do |property|
+                          if property.is_a?(Assign)
+                            "@#{property.target.id}.clone".id
+                          elsif property.is_a?(TypeDeclaration)
+                            "@#{property.var.id}.clone".id
+                          else
+                            "@#{property.id}.clone".id
+                          end
+                        end
+                      }})
     end
   end
 end
@@ -45,13 +88,25 @@ end
 #
 # ```
 # a = 1
-# pp a # prints "a = 1"
+# pp a # prints "a # => 1"
 #
-# pp [1, 2, 3].map(&.to_s) # prints "[1, 2, 3].map(&.to_s) = ["1", "2", "3"]
+# pp [1, 2, 3].map(&.to_s) # prints "[1, 2, 3].map(&.to_s) # => ["1", "2", "3"]"
 # ```
 macro pp(*exps)
-  {% for exp in exps %}
-    ::puts "#{ {{exp.stringify}} } = #{ ({{exp}}).inspect }"
+  {% if exps.size == 0 %}
+    # Nothing
+  {% elsif exps.size == 1 %}
+    {% exp = exps.first %}
+    ::puts "#{ {{exp.stringify}} } # => #{ ({{exp}}).inspect }"
+  {% else %}
+    %strings = [] of {String, String}
+    {% for exp in exps %}
+      %strings.push({ {{exp.stringify}}, ({{exp}}).inspect })
+    {% end %}
+    %max_size = %strings.max_of &.[0].size
+    %strings.each do |%left, %right|
+      ::puts "#{%left.ljust(%max_size)} # => #{%right}"
+    end
   {% end %}
 end
 

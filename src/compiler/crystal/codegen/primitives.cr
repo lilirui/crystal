@@ -4,71 +4,69 @@ class Crystal::CodeGenVisitor
   # Can only happen in a Const or as an argument cast.
   def visit(node : Primitive)
     @last = case node.name
-            when :argc
+            when "argc"
               @argc
-            when :argv
+            when "argv"
               @argv
             else
               raise "Bug: unhandled primitive in codegen visit: #{node.name}"
             end
   end
 
-  def codegen_primitive(node, target_def, call_args)
+  def codegen_primitive(call, node, target_def, call_args)
     @last = case node.name
-            when :binary
+            when "binary"
               codegen_primitive_binary node, target_def, call_args
-            when :cast
+            when "cast"
               codegen_primitive_cast node, target_def, call_args
-            when :allocate
+            when "allocate"
               codegen_primitive_allocate node, target_def, call_args
-            when :pointer_malloc
+            when "pointer_malloc"
               codegen_primitive_pointer_malloc node, target_def, call_args
-            when :pointer_set
+            when "pointer_set"
               codegen_primitive_pointer_set node, target_def, call_args
-            when :pointer_get
+            when "pointer_get"
               codegen_primitive_pointer_get node, target_def, call_args
-            when :pointer_address
+            when "pointer_address"
               codegen_primitive_pointer_address node, target_def, call_args
-            when :pointer_new
+            when "pointer_new"
               codegen_primitive_pointer_new node, target_def, call_args
-            when :pointer_realloc
+            when "pointer_realloc"
               codegen_primitive_pointer_realloc node, target_def, call_args
-            when :pointer_add
+            when "pointer_add"
               codegen_primitive_pointer_add node, target_def, call_args
-            when :pointer_diff
+            when "pointer_diff"
               codegen_primitive_pointer_diff node, target_def, call_args
-            when :struct_new
-              codegen_primitive_struct_new node, target_def, call_args
-            when :struct_set
-              codegen_primitive_struct_set node, target_def, call_args
-            when :struct_get
-              codegen_primitive_struct_get node, target_def, call_args
-            when :union_new
-              codegen_primitive_union_new node, target_def, call_args
-            when :union_set
-              codegen_primitive_union_set node, target_def, call_args
-            when :union_get
-              codegen_primitive_union_get node, target_def, call_args
-            when :external_var_set
+            when "struct_or_union_set"
+              codegen_primitive_struct_or_union_set node, target_def, call_args
+            when "external_var_set"
               codegen_primitive_external_var_set node, target_def, call_args
-            when :external_var_get
+            when "external_var_get"
               codegen_primitive_external_var_get node, target_def, call_args
-            when :object_id
+            when "object_id"
               codegen_primitive_object_id node, target_def, call_args
-            when :object_crystal_type_id
+            when "object_crystal_type_id"
               codegen_primitive_object_crystal_type_id node, target_def, call_args
-            when :symbol_hash
-              codegen_primitive_symbol_hash node, target_def, call_args
-            when :symbol_to_s
+            when "symbol_to_s"
               codegen_primitive_symbol_to_s node, target_def, call_args
-            when :class
+            when "class"
               codegen_primitive_class node, target_def, call_args
-            when :fun_call
-              codegen_primitive_fun_call node, target_def, call_args
-            when :tuple_indexer_known_index
+            when "proc_call"
+              codegen_primitive_proc_call node, target_def, call_args
+            when "tuple_indexer_known_index"
               codegen_primitive_tuple_indexer_known_index node, target_def, call_args
-            when :enum_value, :enum_new
+            when "enum_value", "enum_new"
               call_args[0]
+            when "cmpxchg"
+              codegen_primitive_cmpxchg call, node, target_def, call_args
+            when "atomicrmw"
+              codegen_primitive_atomicrmw call, node, target_def, call_args
+            when "fence"
+              codegen_primitive_fence call, node, target_def, call_args
+            when "load_atomic"
+              codegen_primitive_load_atomic call, node, target_def, call_args
+            when "store_atomic"
+              codegen_primitive_store_atomic call, node, target_def, call_args
             else
               raise "Bug: unhandled primitive in codegen: #{node.name}"
             end
@@ -84,7 +82,7 @@ class Crystal::CodeGenVisitor
     case op
     when "==" then builder.icmp LLVM::IntPredicate::EQ, p1, p2
     when "!=" then builder.icmp LLVM::IntPredicate::NE, p1, p2
-    else raise "Bug: trying to codegen #{t1} #{op} #{t2}"
+    else           raise "Bug: trying to codegen #{t1} #{op} #{t2}"
     end
   end
 
@@ -92,11 +90,11 @@ class Crystal::CodeGenVisitor
     case op
     when "==" then return builder.icmp LLVM::IntPredicate::EQ, p1, p2
     when "!=" then return builder.icmp LLVM::IntPredicate::NE, p1, p2
-    when "<" then return builder.icmp LLVM::IntPredicate::ULT, p1, p2
+    when "<"  then return builder.icmp LLVM::IntPredicate::ULT, p1, p2
     when "<=" then return builder.icmp LLVM::IntPredicate::ULE, p1, p2
-    when ">" then return builder.icmp LLVM::IntPredicate::UGT, p1, p2
+    when ">"  then return builder.icmp LLVM::IntPredicate::UGT, p1, p2
     when ">=" then return builder.icmp LLVM::IntPredicate::UGE, p1, p2
-    else raise "Bug: trying to codegen #{t1} #{op} #{t2}"
+    else           raise "Bug: trying to codegen #{t1} #{op} #{t2}"
     end
   end
 
@@ -104,11 +102,46 @@ class Crystal::CodeGenVisitor
     case op
     when "==" then return builder.icmp LLVM::IntPredicate::EQ, p1, p2
     when "!=" then return builder.icmp LLVM::IntPredicate::NE, p1, p2
-    else raise "Bug: trying to codegen #{t1} #{op} #{t2}"
+    else           raise "Bug: trying to codegen #{t1} #{op} #{t2}"
     end
   end
 
   def codegen_binary_op(op, t1 : IntegerType, t2 : IntegerType, p1, p2)
+    # Comparisons are a bit trickier because we want to get comparisons
+    # between signed and unsigned integers right.
+    case op
+    when "<"  then return @last = codegen_binary_op_lt(t1, t2, p1, p2)
+    when "<=" then return @last = codegen_binary_op_lte(t1, t2, p1, p2)
+    when ">"  then return @last = codegen_binary_op_gt(t1, t2, p1, p2)
+    when ">=" then return @last = codegen_binary_op_gte(t1, t2, p1, p2)
+    end
+
+    p1, p2 = codegen_binary_extend_int(t1, t2, p1, p2)
+
+    @last = case op
+            when "+"               then builder.add p1, p2
+            when "-"               then builder.sub p1, p2
+            when "*"               then builder.mul p1, p2
+            when "/", "unsafe_div" then t1.signed? ? builder.sdiv(p1, p2) : builder.udiv(p1, p2)
+            when "%", "unsafe_mod" then t1.signed? ? builder.srem(p1, p2) : builder.urem(p1, p2)
+            when "unsafe_shl"      then builder.shl(p1, p2)
+            when "unsafe_shr"      then t1.signed? ? builder.ashr(p1, p2) : builder.lshr(p1, p2)
+            when "|"               then or(p1, p2)
+            when "&"               then and(p1, p2)
+            when "^"               then builder.xor(p1, p2)
+            when "=="              then return builder.icmp LLVM::IntPredicate::EQ, p1, p2
+            when "!="              then return builder.icmp LLVM::IntPredicate::NE, p1, p2
+            else                        raise "Bug: trying to codegen #{t1} #{op} #{t2}"
+            end
+
+    if t1.normal_rank != t2.normal_rank && t1.rank < t2.rank
+      @last = trunc @last, llvm_type(t1)
+    end
+
+    @last
+  end
+
+  def codegen_binary_extend_int(t1, t2, p1, p2)
     if t1.normal_rank == t2.normal_rank
       # Nothing to do
     elsif t1.rank < t2.rank
@@ -116,32 +149,159 @@ class Crystal::CodeGenVisitor
     else
       p2 = extend_int t2, t1, p2
     end
+    {p1, p2}
+  end
 
-    @last = case op
-            when "+" then builder.add p1, p2
-            when "-" then builder.sub p1, p2
-            when "*" then builder.mul p1, p2
-            when "/", "unsafe_div" then t1.signed? ? builder.sdiv(p1, p2) : builder.udiv(p1, p2)
-            when "%", "unsafe_mod" then t1.signed? ? builder.srem(p1, p2) : builder.urem(p1, p2)
-            when "unsafe_shl" then builder.shl(p1, p2)
-            when "unsafe_shr" then t1.signed? ? builder.ashr(p1, p2) : builder.lshr(p1, p2)
-            when "|" then or(p1, p2)
-            when "&" then and(p1, p2)
-            when "^" then builder.xor(p1, p2)
-            when "==" then return builder.icmp LLVM::IntPredicate::EQ, p1, p2
-            when "!=" then return builder.icmp LLVM::IntPredicate::NE, p1, p2
-            when "<" then return builder.icmp (t1.signed? ? LLVM::IntPredicate::SLT : LLVM::IntPredicate::ULT), p1, p2
-            when "<=" then return builder.icmp (t1.signed? ? LLVM::IntPredicate::SLE : LLVM::IntPredicate::ULE), p1, p2
-            when ">" then return builder.icmp (t1.signed? ? LLVM::IntPredicate::SGT : LLVM::IntPredicate::UGT), p1, p2
-            when ">=" then return builder.icmp (t1.signed? ? LLVM::IntPredicate::SGE : LLVM::IntPredicate::UGE), p1, p2
-            else raise "Bug: trying to codegen #{t1} #{op} #{t2}"
-            end
-
-    if t1.normal_rank != t2.normal_rank  && t1.rank < t2.rank
-      @last = trunc @last, llvm_type(t1)
+  def codegen_binary_op_lt(t1, t2, p1, p2)
+    if t1.signed? == t2.signed?
+      p1, p2 = codegen_binary_extend_int(t1, t2, p1, p2)
+      builder.icmp (t1.signed? ? LLVM::IntPredicate::SLT : LLVM::IntPredicate::ULT), p1, p2
+    else
+      if t1.signed? && t2.unsigned?
+        if t1.bytes > t2.bytes
+          # x < 0 || x < x.class.new(y)
+          or(
+            builder.icmp(LLVM::IntPredicate::SLT, p1, int(0, t1)),
+            builder.icmp(LLVM::IntPredicate::SLT, p1, extend_int(t2, t1, p2))
+          )
+        else
+          # x < 0 || y.class.new(x) < y
+          or(
+            builder.icmp(LLVM::IntPredicate::SLT, p1, int(0, t1)),
+            builder.icmp(LLVM::IntPredicate::ULT, extend_int(t1, t2, p1), p2)
+          )
+        end
+      else
+        # t1.unsigned? && t2.signed?
+        if t1.bytes < t2.bytes
+          # y >= 0 && y.class.new(x) < y
+          and(
+            builder.icmp(LLVM::IntPredicate::SGE, p2, int(0, t2)),
+            builder.icmp(LLVM::IntPredicate::SLT, extend_int(t1, t2, p1), p2)
+          )
+        else
+          # y >= 0 && x < x.class.new(y)
+          and(
+            builder.icmp(LLVM::IntPredicate::SGE, p2, int(0, t2)),
+            builder.icmp(LLVM::IntPredicate::ULT, p1, extend_int(t2, t1, p2))
+          )
+        end
+      end
     end
+  end
 
-    @last
+  def codegen_binary_op_lte(t1, t2, p1, p2)
+    if t1.signed? == t2.signed?
+      p1, p2 = codegen_binary_extend_int(t1, t2, p1, p2)
+      builder.icmp (t1.signed? ? LLVM::IntPredicate::SLE : LLVM::IntPredicate::ULE), p1, p2
+    else
+      if t1.signed? && t2.unsigned?
+        if t1.bytes > t2.bytes
+          # x <= 0 || x <= x.class.new(y)
+          or(
+            builder.icmp(LLVM::IntPredicate::SLE, p1, int(0, t1)),
+            builder.icmp(LLVM::IntPredicate::SLE, p1, extend_int(t2, t1, p2))
+          )
+        else
+          # x <= 0 || y.class.new(x) <= y
+          or(
+            builder.icmp(LLVM::IntPredicate::SLE, p1, int(0, t1)),
+            builder.icmp(LLVM::IntPredicate::ULE, extend_int(t1, t2, p1), p2)
+          )
+        end
+      else
+        # t1.unsigned? && t2.signed?
+        if t1.bytes < t2.bytes
+          # y >= 0 && y.class.new(x) <= y
+          and(
+            builder.icmp(LLVM::IntPredicate::SGE, p2, int(0, t2)),
+            builder.icmp(LLVM::IntPredicate::SLE, extend_int(t1, t2, p1), p2)
+          )
+        else
+          # y >= 0 && x <= x.class.new(y)
+          and(
+            builder.icmp(LLVM::IntPredicate::SGE, p2, int(0, t2)),
+            builder.icmp(LLVM::IntPredicate::ULE, p1, extend_int(t2, t1, p2))
+          )
+        end
+      end
+    end
+  end
+
+  def codegen_binary_op_gt(t1, t2, p1, p2)
+    if t1.signed? == t2.signed?
+      p1, p2 = codegen_binary_extend_int(t1, t2, p1, p2)
+      builder.icmp (t1.signed? ? LLVM::IntPredicate::SGT : LLVM::IntPredicate::UGT), p1, p2
+    else
+      if t1.signed? && t2.unsigned?
+        if t1.bytes > t2.bytes
+          # x >= 0 && x > x.class.new(y)
+          and(
+            builder.icmp(LLVM::IntPredicate::SGE, p1, int(0, t1)),
+            builder.icmp(LLVM::IntPredicate::SGT, p1, extend_int(t2, t1, p2))
+          )
+        else
+          # x >= 0 && y.class.new(x) > y
+          and(
+            builder.icmp(LLVM::IntPredicate::SGE, p1, int(0, t1)),
+            builder.icmp(LLVM::IntPredicate::UGT, extend_int(t1, t2, p1), p2)
+          )
+        end
+      else
+        # t1.unsigned? && t2.signed?
+        if t1.bytes < t2.bytes
+          # y < 0 || y.class.new(x) > y
+          or(
+            builder.icmp(LLVM::IntPredicate::SLT, p2, int(0, t2)),
+            builder.icmp(LLVM::IntPredicate::SGT, extend_int(t1, t2, p1), p2)
+          )
+        else
+          # y < 0 || x > x.class.new(y)
+          or(
+            builder.icmp(LLVM::IntPredicate::SLT, p2, int(0, t2)),
+            builder.icmp(LLVM::IntPredicate::UGT, p1, extend_int(t2, t1, p2))
+          )
+        end
+      end
+    end
+  end
+
+  def codegen_binary_op_gte(t1, t2, p1, p2)
+    if t1.signed? == t2.signed?
+      p1, p2 = codegen_binary_extend_int(t1, t2, p1, p2)
+      builder.icmp (t1.signed? ? LLVM::IntPredicate::SGE : LLVM::IntPredicate::UGE), p1, p2
+    else
+      if t1.signed? && t2.unsigned?
+        if t1.bytes > t2.bytes
+          # x >= 0 && x >= x.class.new(y)
+          and(
+            builder.icmp(LLVM::IntPredicate::SGE, p1, int(0, t1)),
+            builder.icmp(LLVM::IntPredicate::SGE, p1, extend_int(t2, t1, p2))
+          )
+        else
+          # x >= 0 && y.class.new(x) >= y
+          and(
+            builder.icmp(LLVM::IntPredicate::SGE, p1, int(0, t1)),
+            builder.icmp(LLVM::IntPredicate::UGE, extend_int(t1, t2, p1), p2)
+          )
+        end
+      else
+        # t1.unsigned? && t2.signed?
+        if t1.bytes < t2.bytes
+          # y <= 0 || y.class.new(x) >= y
+          or(
+            builder.icmp(LLVM::IntPredicate::SLE, p2, int(0, t2)),
+            builder.icmp(LLVM::IntPredicate::SGE, extend_int(t1, t2, p1), p2)
+          )
+        else
+          # y <= 0 || x >= x.class.new(y)
+          or(
+            builder.icmp(LLVM::IntPredicate::SLE, p2, int(0, t2)),
+            builder.icmp(LLVM::IntPredicate::UGE, p1, extend_int(t2, t1, p2))
+          )
+        end
+      end
+    end
   end
 
   def codegen_binary_op(op, t1 : IntegerType, t2 : FloatType, p1, p2)
@@ -162,17 +322,17 @@ class Crystal::CodeGenVisitor
     end
 
     @last = case op
-            when "+" then builder.fadd p1, p2
-            when "-" then builder.fsub p1, p2
-            when "*" then builder.fmul p1, p2
-            when "/" then builder.fdiv p1, p2
+            when "+"  then builder.fadd p1, p2
+            when "-"  then builder.fsub p1, p2
+            when "*"  then builder.fmul p1, p2
+            when "/"  then builder.fdiv p1, p2
             when "==" then return builder.fcmp LLVM::RealPredicate::OEQ, p1, p2
             when "!=" then return builder.fcmp LLVM::RealPredicate::ONE, p1, p2
-            when "<" then return builder.fcmp LLVM::RealPredicate::OLT, p1, p2
+            when "<"  then return builder.fcmp LLVM::RealPredicate::OLT, p1, p2
             when "<=" then return builder.fcmp LLVM::RealPredicate::OLE, p1, p2
-            when ">" then return builder.fcmp LLVM::RealPredicate::OGT, p1, p2
+            when ">"  then return builder.fcmp LLVM::RealPredicate::OGT, p1, p2
             when ">=" then return builder.fcmp LLVM::RealPredicate::OGE, p1, p2
-            else raise "Bug: trying to codegen #{t1} #{op} #{t2}"
+            else           raise "Bug: trying to codegen #{t1} #{op} #{t2}"
             end
     @last = trunc_float t1, @last if t1.rank < t2.rank
     @last
@@ -221,7 +381,7 @@ class Crystal::CodeGenVisitor
   end
 
   def codegen_cast(from_type : IntegerType, to_type : CharType, arg)
-    codegen_cast from_type, @mod.int32, arg
+    codegen_cast from_type, @program.int32, arg
   end
 
   def codegen_cast(from_type : CharType, to_type : IntegerType, arg)
@@ -252,29 +412,32 @@ class Crystal::CodeGenVisitor
     end
 
     if type.is_a?(VirtualType)
-      @last = cast_to @last, type
+      @last = upcast(@last, type, base_type)
     end
 
     @last
   end
 
   def codegen_primitive_pointer_malloc(node, target_def, call_args)
-    type = node.type as PointerInstanceType
+    type = node.type.as(PointerInstanceType)
     llvm_type = llvm_embedded_type(type.element_type)
     last = array_malloc(llvm_type, call_args[1])
-    memset last, int8(0), llvm_type.size
     last
   end
 
   def codegen_primitive_pointer_set(node, target_def, call_args)
-    type = context.type.remove_typedef as PointerInstanceType
+    type = context.type.remove_typedef.as(PointerInstanceType)
+
+    # Assinging to a Pointer(Void) has no effect
+    return llvm_nil if type.element_type.void?
+
     value = call_args[1]
     assign call_args[0], type.element_type, node.type, value
     value
   end
 
   def codegen_primitive_pointer_get(node, target_def, call_args)
-    type = context.type.remove_typedef as PointerInstanceType
+    type = context.type.remove_typedef.as(PointerInstanceType)
     to_lhs call_args[0], type.element_type
   end
 
@@ -287,7 +450,7 @@ class Crystal::CodeGenVisitor
   end
 
   def codegen_primitive_pointer_realloc(node, target_def, call_args)
-    type = context.type as PointerInstanceType
+    type = context.type.as(PointerInstanceType)
 
     casted_ptr = cast_to_void_pointer(call_args[0])
     size = builder.mul call_args[1], llvm_size(type.element_type)
@@ -299,45 +462,21 @@ class Crystal::CodeGenVisitor
     gep call_args[0], call_args[1]
   end
 
-  def codegen_primitive_struct_new(node, target_def, call_args)
-    allocate_aggregate node.type
-  end
-
-  def codegen_primitive_struct_set(node, target_def, call_args)
-    set_aggregate_field(node, target_def, call_args) do
-      type = context.type as CStructOrUnionType
-      name = target_def.name[0 .. -2]
-
-      struct_field_ptr(type, name, call_args[0])
-    end
-  end
-
-  def codegen_primitive_struct_get(node, target_def, call_args)
-    type = context.type as CStructType
-    value = to_lhs struct_field_ptr(type, target_def.name, call_args[0]), node.type
-    value = check_c_fun node.type, value
-    value
-  end
-
   def struct_field_ptr(type, field_name, pointer)
-    index = type.index_of_var(field_name)
+    index = type.index_of_instance_var('@' + field_name).not_nil!
     aggregate_index pointer, index
   end
 
-  def codegen_primitive_union_new(node, target_def, call_args)
-    allocate_aggregate node.type
-  end
-
-  def codegen_primitive_union_set(node, target_def, call_args)
+  def codegen_primitive_struct_or_union_set(node, target_def, call_args)
     set_aggregate_field(node, target_def, call_args) do |field_type|
-      union_field_ptr(field_type, call_args[0])
+      type = context.type.as(NonGenericClassType)
+      if type.extern_union?
+        union_field_ptr(field_type, call_args[0])
+      else
+        name = target_def.name.chop
+        struct_field_ptr(type, name, call_args[0])
+      end
     end
-  end
-
-  def codegen_primitive_union_get(node, target_def, call_args)
-    value = to_lhs union_field_ptr(node.type, call_args[0]), node.type
-    value = check_c_fun node.type, value
-    value
   end
 
   def set_aggregate_field(node, target_def, call_args)
@@ -353,17 +492,17 @@ class Crystal::CodeGenVisitor
       context.vars["value"] = existing_value if existing_value
     end
 
-    var_name = target_def.name[0 ... -1]
-    scope = context.type as CStructOrUnionType
-    field_type = scope.vars[var_name].type
+    var_name = '@' + target_def.name.chop
+    scope = context.type.as(NonGenericClassType)
+    field_type = scope.instance_vars[var_name].type
 
     # Check nil to pointer
-    if node.type.nil_type? && (field_type.pointer? || field_type.fun?)
+    if node.type.nil_type? && (field_type.pointer? || field_type.proc?)
       call_arg = llvm_c_type(field_type).null
     end
 
-    if field_type.fun?
-      call_arg = check_fun_is_not_closure(call_arg, field_type)
+    if field_type.proc?
+      call_arg = check_proc_is_not_closure(call_arg, field_type)
     end
 
     value = to_rhs call_arg, field_type
@@ -374,17 +513,17 @@ class Crystal::CodeGenVisitor
 
   def union_field_ptr(field_type, pointer)
     ptr = aggregate_index pointer, 0
-    if field_type.is_a?(FunInstanceType)
-      bit_cast ptr, @llvm_typer.fun_type(field_type).pointer
+    if field_type.is_a?(ProcInstanceType)
+      bit_cast ptr, @llvm_typer.proc_type(field_type).pointer
     else
       cast_to_pointer ptr, field_type
     end
   end
 
   def codegen_primitive_external_var_set(node, target_def, call_args)
-    external = target_def as External
+    external = target_def.as(External)
     name = external.real_name
-    var = declare_lib_var name, node.type, external.attributes
+    var = declare_lib_var name, node.type, external.thread_local?
 
     @last = call_args[0]
 
@@ -400,9 +539,9 @@ class Crystal::CodeGenVisitor
   end
 
   def codegen_primitive_external_var_get(node, target_def, call_args)
-    external = target_def as External
-    name = (target_def as External).real_name
-    var = declare_lib_var name, node.type, external.attributes
+    external = target_def.as(External)
+    name = target_def.as(External).real_name
+    var = declare_lib_var name, node.type, external.thread_local?
 
     if external.type.passed_by_value?
       @last = var
@@ -431,10 +570,6 @@ class Crystal::CodeGenVisitor
     load(gep @llvm_mod.globals[SYMBOL_TABLE_NAME], int(0), call_args[0])
   end
 
-  def codegen_primitive_symbol_hash(node, target_def, call_args)
-    call_args[0]
-  end
-
   def codegen_primitive_class(node, target_def, call_args)
     value = call_args.first?
     if value
@@ -445,7 +580,7 @@ class Crystal::CodeGenVisitor
   end
 
   def codegen_primitive_class_with_type(type : VirtualType, value)
-    type_id = load value
+    type_id = type_id(value, type)
     metaclass_fun_name = "~metaclass"
     func = @main_mod.functions[metaclass_fun_name]? || create_metaclass_fun(metaclass_fun_name)
     func = check_main_fun metaclass_fun_name, func
@@ -461,8 +596,7 @@ class Crystal::CodeGenVisitor
       current_block = insert_block
 
       cases = {} of LLVM::Value => LLVM::BasicBlock
-      id_to_metaclass.each do |tuple|
-        type_id, metaclass_id = tuple
+      id_to_metaclass.each do |(type_id, metaclass_id)|
         block = new_block "type_#{type_id}"
         cases[int32(type_id)] = block
         position_at_end block
@@ -482,16 +616,16 @@ class Crystal::CodeGenVisitor
     type_id(type)
   end
 
-  def codegen_primitive_fun_call(node, target_def, call_args)
+  def codegen_primitive_proc_call(node, target_def, call_args)
     closure_ptr = call_args[0]
-    args = call_args[1 .. -1]
+    args = call_args[1..-1]
 
-    fun_type = context.type as FunInstanceType
+    proc_type = context.type.as(ProcInstanceType)
     0.upto(target_def.args.size - 1) do |i|
       arg = args[i]
-      fun_arg_type = fun_type.fun_types[i]
+      proc_arg_type = proc_type.arg_types[i]
       target_def_arg_type = target_def.args[i].type
-      args[i] = upcast arg, fun_arg_type, target_def_arg_type
+      args[i] = upcast arg, proc_arg_type, target_def_arg_type
     end
 
     fun_ptr = builder.extract_value closure_ptr, 0
@@ -508,19 +642,84 @@ class Crystal::CodeGenVisitor
 
     phi_value = Phi.open(self, node, @needs_value) do |phi|
       position_at_end ctx_is_null_block
-      real_fun_ptr = bit_cast fun_ptr, llvm_fun_type(context.type)
-      value = codegen_call_or_invoke(node, target_def, nil, real_fun_ptr, args, true, target_def.type, false, fun_type)
+      real_fun_ptr = bit_cast fun_ptr, llvm_proc_type(context.type)
+
+      # When invoking a Proc that has extern structs as arguments or return type, it's tricky:
+      # closures are never generated with C ABI because C doesn't support closures.
+      # But non-closures use C ABI, so if the target Proc is not a closure we cast the
+      # arguments according to the ABI.
+      # For this we temporarily set the target_def's `abi_info` and `considered_external`
+      # properties for the non-closure branch, and then reset it.
+      if target_def.proc_considered_external?
+        null_fun_ptr, null_args = codegen_extern_primitive_proc_call(target_def, args, fun_ptr)
+      else
+        null_fun_ptr, null_args = real_fun_ptr, args
+      end
+
+      value = codegen_call_or_invoke(node, target_def, nil, null_fun_ptr, null_args, true, target_def.type, false, proc_type)
       phi.add value, node.type
+
+      # Reset abi_info + considered_external so the closure part is generated as usual
+      target_def.abi_info = nil
+      target_def.considered_external = nil
 
       position_at_end ctx_is_not_null_block
       real_fun_ptr = bit_cast fun_ptr, llvm_closure_type(context.type)
       args.insert(0, ctx_ptr)
-      value = codegen_call_or_invoke(node, target_def, nil, real_fun_ptr, args, true, target_def.type, true, fun_type)
+      value = codegen_call_or_invoke(node, target_def, nil, real_fun_ptr, args, true, target_def.type, true, proc_type)
       phi.add value, node.type, true
     end
 
     old_needs_value = @needs_value
     phi_value
+  end
+
+  def codegen_extern_primitive_proc_call(target_def, args, fun_ptr)
+    null_fun_types = [] of LLVM::Type
+
+    null_args = [] of LLVM::Value
+    abi_info = abi_info(target_def)
+
+    if abi_info.return_type.attr == LLVM::Attribute::StructRet
+      sret_value = @sret_value = alloca abi_info.return_type.type
+      null_args << sret_value
+      null_fun_types << abi_info.return_type.type.pointer
+      null_fun_return_type = LLVM::Void
+    else
+      if cast = abi_info.return_type.cast
+        null_fun_return_type = cast
+      else
+        null_fun_return_type = abi_info.return_type.type
+      end
+    end
+
+    target_def.args.each_with_index do |arg, index|
+      call_arg = args[index]
+
+      abi_arg_type = abi_info.arg_types[index]
+      case abi_arg_type.kind
+      when LLVM::ABI::ArgKind::Direct
+        call_arg = codegen_direct_abi_call(call_arg, abi_arg_type)
+        if cast = abi_arg_type.cast
+          null_fun_types << cast
+        else
+          null_fun_types << abi_arg_type.type
+        end
+        null_args << call_arg
+      when LLVM::ABI::ArgKind::Indirect
+        # Pass argument as is (will be passed byval)
+        null_args << call_arg
+        null_fun_types << abi_arg_type.type.pointer
+      when LLVM::ABI::ArgKind::Ignore
+        # Ignore
+      end
+    end
+
+    null_fun_llvm_type = LLVM::Type.function(null_fun_types, null_fun_return_type)
+    null_fun_ptr = bit_cast fun_ptr, null_fun_llvm_type.pointer
+    target_def.considered_external = true
+
+    {null_fun_ptr, null_args}
   end
 
   def codegen_primitive_pointer_diff(node, target_def, call_args)
@@ -531,23 +730,129 @@ class Crystal::CodeGenVisitor
   end
 
   def codegen_primitive_tuple_indexer_known_index(node, target_def, call_args)
-    type = context.type
-    if type.is_a?(TupleInstanceType)
-      index = (node as TupleIndexer).index
-      ptr = aggregate_index call_args[0], index
+    index = node.as(TupleIndexer).index
+    codegen_tuple_indexer(context.type, call_args[0], index)
+  end
+
+  def codegen_tuple_indexer(type, value, index)
+    case type
+    when TupleInstanceType
+      ptr = aggregate_index value, index
       to_lhs ptr, type.tuple_types[index]
+    when NamedTupleInstanceType
+      ptr = aggregate_index value, index
+      to_lhs ptr, type.entries[index].type
     else
-      type = (type.instance_type as TupleInstanceType)
-      index = (node as TupleIndexer).index
-      type_id((type.tuple_types[index] as Type).metaclass)
+      type = (type.instance_type.as(TupleInstanceType))
+      type_id(type.tuple_types[index].as(Type).metaclass)
     end
   end
 
   def check_c_fun(type, value)
-    if type.fun?
+    if type.proc?
       make_fun(type, bit_cast(value, LLVM::VoidPointer), LLVM::VoidPointer.null)
     else
       value
     end
+  end
+
+  def codegen_primitive_cmpxchg(call, node, target_def, call_args)
+    success_ordering = atomic_ordering_from_symbol_literal(call.args[-2])
+    failure_ordering = atomic_ordering_from_symbol_literal(call.args[-1])
+
+    pointer, cmp, new = call_args
+    value = builder.cmpxchg(pointer, cmp, new, success_ordering, failure_ordering)
+    value_ptr = alloca llvm_type(node.type)
+    store extract_value(value, 0), gep(value_ptr, 0, 0)
+    store extract_value(value, 1), gep(value_ptr, 0, 1)
+    value_ptr
+  end
+
+  def codegen_primitive_atomicrmw(call, node, target_def, call_args)
+    op = atomicrwm_bin_op_from_symbol_literal(call.args[0])
+    ordering = atomic_ordering_from_symbol_literal(call.args[-2])
+    singlethread = bool_from_bool_literal(call.args[-1])
+
+    _, pointer, val = call_args
+    builder.atomicrmw(op, pointer, val, ordering, singlethread)
+  end
+
+  def codegen_primitive_fence(call, node, target_def, call_args)
+    ordering = atomic_ordering_from_symbol_literal(call.args[0])
+    singlethread = bool_from_bool_literal(call.args[1])
+
+    builder.fence(ordering, singlethread)
+    llvm_nil
+  end
+
+  def codegen_primitive_load_atomic(call, node, target_def, call_args)
+    ordering = atomic_ordering_from_symbol_literal(call.args[-2])
+    volatile = bool_from_bool_literal(call.args[-1])
+
+    ptr = call_args.first
+
+    inst = builder.load(ptr)
+    inst.ordering = ordering
+    inst.volatile = true if volatile
+    set_alignment inst, node.type
+    inst
+  end
+
+  def codegen_primitive_store_atomic(call, node, target_def, call_args)
+    ordering = atomic_ordering_from_symbol_literal(call.args[-2])
+    volatile = bool_from_bool_literal(call.args[-1])
+
+    ptr, value = call_args
+
+    inst = builder.store(value, ptr)
+    inst.ordering = ordering
+    inst.volatile = true if volatile
+    set_alignment inst, node.type
+    inst
+  end
+
+  def set_alignment(inst, type)
+    case type
+    when IntegerType, FloatType
+      inst.alignment = type.bytes
+    when CharType
+      inst.alignment = 4
+    else
+      inst.alignment = @program.has_flag?("x86_64") ? 8 : 4
+    end
+  end
+
+  def atomic_ordering_from_symbol_literal(node)
+    unless node.is_a?(SymbolLiteral)
+      node.raise "Bug: expected symbol literal"
+    end
+
+    ordering = LLVM::AtomicOrdering.parse?(node.value)
+    unless ordering
+      node.raise "unknown atomic ordering: #{node.value}"
+    end
+
+    ordering
+  end
+
+  def atomicrwm_bin_op_from_symbol_literal(node)
+    unless node.is_a?(SymbolLiteral)
+      node.raise "Bug: expected symbol literal"
+    end
+
+    op = LLVM::AtomicRMWBinOp.parse?(node.value)
+    unless op
+      node.raise "unknown atomic rwm bin op: #{node.value}"
+    end
+
+    op
+  end
+
+  def bool_from_bool_literal(node)
+    unless node.is_a?(BoolLiteral)
+      node.raise "Bug: expected bool literal"
+    end
+
+    node.value
   end
 end

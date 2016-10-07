@@ -5,10 +5,10 @@ require "./item"
 class Crystal::Doc::Macro
   include Item
 
-  getter type
-  getter :macro
+  getter type : Type
+  getter macro : Crystal::Macro
 
-  def initialize(@generator, @type, @macro)
+  def initialize(@generator : Generator, @type : Type, @macro : Crystal::Macro)
   end
 
   def name
@@ -29,7 +29,7 @@ class Crystal::Doc::Macro
 
   def id
     String.build do |io|
-      io << to_s.gsub(' ', "")
+      io << to_s.gsub(/<.+?>/, "").gsub(' ', "")
       io << "-macro"
     end
   end
@@ -66,12 +66,22 @@ class Crystal::Doc::Macro
   def args_to_s(io)
     return if @macro.args.empty?
 
+    printed = false
     io << '('
+
     @macro.args.each_with_index do |arg, i|
-      io << ", " if i > 0
+      io << ", " if printed
       io << '*' if @macro.splat_index == i
       io << arg
+      printed = true
     end
+
+    if double_splat = @macro.double_splat
+      io << ", " if printed
+      io << "**"
+      io << double_splat
+    end
+
     io << ')'
   end
 

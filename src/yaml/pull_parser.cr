@@ -1,17 +1,42 @@
 class YAML::PullParser
-  def initialize(content)
-    @parser = Pointer(Void).malloc(LibYAML::PARSER_SIZE) as LibYAML::Parser*
+  protected getter content
+
+  def initialize(@content : String | IO)
+    @parser = Pointer(Void).malloc(LibYAML::PARSER_SIZE).as(LibYAML::Parser*)
     @event = LibYAML::Event.new
+    @closed = false
 
     LibYAML.yaml_parser_initialize(@parser)
-    LibYAML.yaml_parser_set_input_string(@parser, content, content.bytesize)
+
+    if content.is_a?(String)
+      LibYAML.yaml_parser_set_input_string(@parser, content, content.bytesize)
+    else
+      LibYAML.yaml_parser_set_input(@parser, ->(data, buffer, size, size_read) {
+        parser = data.as(YAML::PullParser)
+        io = parser.content.as(IO)
+        slice = Slice.new(buffer, size)
+        actual_read_bytes = io.read(slice)
+        size_read.value = LibC::SizeT.new(actual_read_bytes)
+        LibC::Int.new(1)
+      }, self.as(Void*))
+    end
 
     read_next
     parse_exception "Expected STREAM_START" unless kind == LibYAML::EventType::STREAM_START
   end
 
+  def self.new(content)
+    parser = new(content)
+    yield parser ensure parser.close
+  end
+
   def kind
     @event.type
+  end
+
+  def tag
+    ptr = @event.data.scalar.tag
+    ptr ? String.new(ptr) : nil
   end
 
   def value
@@ -142,6 +167,51 @@ class YAML::PullParser
     read_next
   end
 
+  def read_raw
+    case kind
+    when EventKind::SCALAR
+      self.value.not_nil!.tap { read_next }
+    when EventKind::SEQUENCE_START, EventKind::MAPPING_START
+      String.build { |io| read_raw(io) }
+    else
+      parse_exception "unexpected kind: #{kind}"
+    end
+  end
+
+  def read_raw(io)
+    case kind
+    when EventKind::SCALAR
+      self.value.not_nil!.inspect(io)
+      read_next
+    when EventKind::SEQUENCE_START
+      io << "["
+      read_next
+      first = true
+      while kind != EventKind::SEQUENCE_END
+        io << "," unless first
+        read_raw(io)
+        first = false
+      end
+      io << "]"
+      read_next
+    when EventKind::MAPPING_START
+      io << "{"
+      read_next
+      first = true
+      while kind != EventKind::MAPPING_END
+        io << "," unless first
+        read_raw(io)
+        io << ":"
+        read_raw(io)
+        first = false
+      end
+      io << "}"
+      read_next
+    else
+      parse_exception "unexpected kind: #{kind}"
+    end
+  end
+
   def skip
     case kind
     when EventKind::SCALAR
@@ -172,9 +242,32 @@ class YAML::PullParser
     @event.start_mark.column
   end
 
-  def close
+  def problem_line_number
+    problem? ? problem_mark.line : line_number
+  end
+
+  def problem_column_number
+    problem? ? problem_mark.column : column_number
+  end
+
+  def problem_mark
+    @parser.value.problem_mark
+  end
+
+  private def problem?
+    @parser.value.problem
+  end
+
+  def finalize
+    return if @closed
+
     LibYAML.yaml_parser_delete(@parser)
     LibYAML.yaml_event_delete(pointerof(@event))
+  end
+
+  def close
+    finalize
+    @closed = true
   end
 
   private def expect_kind(kind)
@@ -186,6 +279,6 @@ class YAML::PullParser
   end
 
   private def parse_exception(msg)
-    raise ParseException.new(msg, line_number, column_number)
+    raise ParseException.new(msg, problem_line_number, problem_column_number)
   end
 end

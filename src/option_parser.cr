@@ -15,7 +15,7 @@
 #
 #     OptionParser.parse! do |parser|
 #       parser.banner = "Usage: salute [arguments]"
-#       parser.on("-u", "--upcase", "Upcases the sallute") { upcase = true }
+#       parser.on("-u", "--upcase", "Upcases the salute") { upcase = true }
 #       parser.on("-t NAME", "--to=NAME", "Specifies the name to salute") { |name| destination = name }
 #       parser.on("-h", "--help", "Show this help") { puts parser }
 #     end
@@ -39,10 +39,12 @@ class OptionParser
   end
 
   # :nodoc:
-  record Handler, flag, block
+  record Handler,
+    flag : String,
+    block : String ->
 
   # Creates a new parser, with its configuration specified in the block, and uses it to parse the passed `args`.
-  def self.parse(args)
+  def self.parse(args) : self
     parser = OptionParser.new
     yield parser
     parser.parse(args)
@@ -50,14 +52,25 @@ class OptionParser
   end
 
   # Creates a new parser, with its configuration specified in the block, and uses it to parse the arguments passed to the program.
-  def self.parse!
+  def self.parse! : self
     parse(ARGV) { |parser| yield parser }
   end
+
+  protected property flags : Array(String)
+  protected property handlers : Array(Handler)
+  protected property unknown_args
+  protected property! missing_option
+  protected property! invalid_option
 
   # Creates a new parser.
   def initialize
     @flags = [] of String
     @handlers = [] of Handler
+    missing_option { |flag| raise MissingOption.new(flag) }
+    invalid_option { |flag| raise InvalidOption.new(flag) }
+    # TODO: switch to these and change property! to property above after 0.19.0
+    # @missing_option = ->(option : String) { raise MissingOption.new(option) }
+    # @invalid_option = ->(option : String) { raise InvalidOption.new(option) }
   end
 
   # Creates a new parser, with its configuration specified in the block.
@@ -72,7 +85,7 @@ class OptionParser
   #
   #     parser.banner = "Usage: crystal [command] [switches] [program file] [--] [arguments]"
   #
-  setter banner
+  setter banner : String?
 
   # Establishes a handler for a flag.
   #
@@ -94,6 +107,13 @@ class OptionParser
   # See the other definition of `on` for examples.
   def on(short_flag, long_flag, description, &block : String ->)
     append_flag "#{short_flag}, #{long_flag}", description
+
+    has_argument = /([ =].+)/
+    if long_flag =~ has_argument
+      argument = $1
+      short_flag += argument unless short_flag =~ has_argument
+    end
+
     @handlers << Handler.new(short_flag, block)
     @handlers << Handler.new(long_flag, block)
   end
@@ -105,10 +125,22 @@ class OptionParser
     @flags << message.to_s
   end
 
-  # Sets a handler for arguments that didn't match any of the setup options.
+  # Sets a handler for regular arguments that didn't match any of the setup options.
   #
   # You typically use this to get the main arguments (not modifiers) that your program expects (for example, filenames)
-  def unknown_args(&@unknown_args : Array(String), Array(String) -> )
+  def unknown_args(&@unknown_args : Array(String), Array(String) ->)
+  end
+
+  # Sets a handler for when a option that expects an argument wasn't given any.
+  #
+  # You typically use this to display a help message. The default raises `MissingOption`.
+  def missing_option(&@missing_option : String ->)
+  end
+
+  # Sets a handler for option arguments that didn't match any of the setup options.
+  #
+  # You typically use this to display a help message. The default raises `InvalidOption`.
+  def invalid_option(&@invalid_option : String ->)
   end
 
   # Returns all the setup options, formatted in a help message.
@@ -121,19 +153,16 @@ class OptionParser
   end
 
   private def append_flag(flag, description)
-    @flags << String.build do |str|
-      str << "    "
-      str << flag
-      (33 - flag.size).times do
-        str << " "
-      end
-      str << description
+    if flag.size >= 33
+      @flags << "    #{flag}\n#{" " * 37}#{description}"
+    else
+      @flags << "    #{flag}#{" " * (33 - flag.size)}#{description}"
     end
   end
 
-  # Parses the passed `args`, running the handlers associated to each option.
+  # Parses the passed *args*, running the handlers associated to each option.
   def parse(args)
-    ParseTask.new(args, @flags, @handlers, @unknown_args).parse
+    ParseTask.new(self, args).parse
   end
 
   # Parses the passed the arguments passed to the program, running the handlers associated to each option.
@@ -141,9 +170,10 @@ class OptionParser
     parse ARGV
   end
 
-  # :nodoc:
-  struct ParseTask
-    def initialize(@args, @flags, @handlers, @unknown_args)
+  private struct ParseTask
+    @double_dash_index : Int32?
+
+    def initialize(@parser : OptionParser, @args : Array(String))
       double_dash_index = @double_dash_index = @args.index("--")
       if double_dash_index
         @args.delete_at(double_dash_index)
@@ -151,15 +181,15 @@ class OptionParser
     end
 
     def parse
-      @handlers.each do |handler|
+      @parser.handlers.each do |handler|
         process_handler handler
       end
 
-      if unknown_args = @unknown_args
+      if unknown_args = @parser.unknown_args
         double_dash_index = @double_dash_index
         if double_dash_index
-          before_dash = @args[0 ... double_dash_index]
-          after_dash = @args[double_dash_index .. -1]
+          before_dash = @args[0...double_dash_index]
+          after_dash = @args[double_dash_index..-1]
         else
           before_dash = @args
           after_dash = [] of String
@@ -181,9 +211,9 @@ class OptionParser
       when /--\S+/
         process_flag_presence(flag, block)
       when /-(.)\s*\[\S+\]/
-        process_single_flag(flag[0 .. 1], block)
+        process_single_flag(flag[0..1], block)
       when /-(.)\s+\S+/, /-(.)\s+/, /-(.)\S+/
-        process_single_flag(flag[0 .. 1], block, true)
+        process_single_flag(flag[0..1], block, true)
       else
         process_flag_presence(flag, block)
       end
@@ -197,7 +227,7 @@ class OptionParser
     end
 
     private def process_double_flag(flag, block, raise_if_missing = false)
-      while index = args_index { |arg| arg.starts_with?(flag) }
+      while index = args_index { |arg| arg.split("=")[0] == flag }
         arg = @args[index]
         if arg.size == flag.size
           delete_arg_at_index(index)
@@ -205,14 +235,14 @@ class OptionParser
             block.call delete_arg_at_index(index)
           else
             if raise_if_missing
-              raise MissingOption.new(flag)
+              @parser.missing_option.call(flag)
             end
           end
         elsif arg[flag.size] == '='
           delete_arg_at_index(index)
-          value = arg[flag.size + 1 .. -1]
+          value = arg[flag.size + 1..-1]
           if value.empty?
-            raise MissingOption.new(flag)
+            @parser.missing_option.call(flag)
           else
             block.call value
           end
@@ -227,11 +257,11 @@ class OptionParser
           if index < args_size
             block.call delete_arg_at_index(index)
           else
-            raise MissingOption.new(flag) if raise_if_missing
+            @parser.missing_option.call(flag) if raise_if_missing
           end
         else
-          value = arg[2 .. -1]
-          raise MissingOption.new(flag) if raise_if_missing && value.empty?
+          value = arg[2..-1]
+          @parser.missing_option.call(flag) if raise_if_missing && value.empty?
           block.call value
         end
       end
@@ -271,8 +301,8 @@ class OptionParser
       @args.each_with_index do |arg, index|
         return if (double_dash_index = @double_dash_index) && index >= double_dash_index
 
-        if arg.starts_with?('-')
-          raise InvalidOption.new(arg)
+        if arg.starts_with?('-') && arg != "-"
+          @parser.invalid_option.call(arg)
         end
       end
     end

@@ -16,27 +16,22 @@
 #     ba[2]                 # => true
 struct BitArray
   include Enumerable(Bool)
+  include Indexable(Bool)
 
   # The number of bits the BitArray stores
-  getter size
+  getter size : Int32
 
   # Create a new BitArray of `size` bits.
   #
   # `initial` optionally sets the starting value, true or false, for all bits
   # in the array.
-  def initialize(@size, initial = false : Bool)
+  def initialize(@size, initial : Bool = false)
     value = initial ? UInt32::MAX : UInt32::MIN
     @bits = Pointer(UInt32).malloc(malloc_size, value)
   end
 
-  # Returns the bit at the given index.
-  # Negative indices can be used to start counting from the end of the array.
-  # Raises `IndexError` if trying to access a bit outside the array's range.
-  #
-  #     ba = BitArray.new(5)
-  #     ba[3] # => false
-  def [](index)
-    bit_index, sub_index = bit_index_and_sub_index(index)
+  def unsafe_at(index : Int)
+    bit_index, sub_index = index.divmod(32)
     (@bits[bit_index] & (1 << sub_index)) > 0
   end
 
@@ -63,7 +58,7 @@ struct BitArray
   #     ba = BitArray.new(5)
   #     ba[3] # => false
   #     ba.toggle(3)
-  #     ba[3] # => false
+  #     ba[3] # => true
   def toggle(index)
     bit_index, sub_index = bit_index_and_sub_index(index)
     @bits[bit_index] ^= 1 << sub_index
@@ -83,12 +78,10 @@ struct BitArray
     end
   end
 
-  def each
-    @size.times do |i|
-      yield self[i]
-    end
-  end
-
+  # Creates a string representation of self.
+  #
+  #     ba = BitArray.new(5)
+  #     puts ba.to_s #=> "BitArray[00000]"
   def to_s(io : IO)
     io << "BitArray["
     each do |value|
@@ -97,10 +90,26 @@ struct BitArray
     io << "]"
   end
 
-  private def bit_index_and_sub_index(index)
-    index += @size if index < 0
-    raise IndexError.new if index >= @size || index < 0
+  # ditto
+  def inspect(io : IO)
+    to_s(io)
+  end
 
+  # Returns a Slice(UInt8) able to read and write bytes from a buffer.
+  # The slice will be long enough to hold all the bits groups in bytes despite the `UInt32` internal representation.
+  # It's useful for reading and writing a bit array from a byte buffer directly.
+  def to_slice : Slice(UInt8)
+    Slice.new(@bits.as(Pointer(UInt8)), (@size / 8.0).ceil.to_i)
+  end
+
+  private def bit_index_and_sub_index(index)
+    bit_index_and_sub_index(index) { raise IndexError.new }
+  end
+
+  private def bit_index_and_sub_index(index)
+    index = check_index_out_of_bounds(index) do
+      return yield
+    end
     index.divmod(32)
   end
 

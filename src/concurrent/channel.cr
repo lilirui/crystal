@@ -1,24 +1,30 @@
 require "fiber"
 
-
 abstract class Channel(T)
+  module SelectAction
+    abstract def ready?
+    abstract def execute
+    abstract def wait
+    abstract def unwait
+  end
+
   class ClosedError < Exception
-    def initialize msg = "Channel is closed"
+    def initialize(msg = "Channel is closed")
       super(msg)
     end
   end
 
   def initialize
     @closed = false
-    @senders = [] of Fiber
-    @receivers = [] of Fiber
+    @senders = Deque(Fiber).new
+    @receivers = Deque(Fiber).new
   end
 
-  def self.new
+  def self.new : Unbuffered(T)
     Unbuffered(T).new
   end
 
-  def self.new(capacity)
+  def self.new(capacity) : Buffered(T)
     Buffered(T).new(capacity)
   end
 
@@ -26,6 +32,7 @@ abstract class Channel(T)
     @closed = true
     Scheduler.enqueue @receivers
     @receivers.clear
+    nil
   end
 
   def closed?
@@ -69,7 +76,7 @@ abstract class Channel(T)
   end
 
   def self.receive_first(channels : Tuple | Array)
-    select(channels.map(&.receive_op))[1]
+    self.select(channels.map(&.receive_select_action))[1]
   end
 
   def self.send_first(value, *channels)
@@ -77,15 +84,15 @@ abstract class Channel(T)
   end
 
   def self.send_first(value, channels : Tuple | Array)
-    select(channels.map(&.send_op(value)))
+    self.select(channels.map(&.send_select_action(value)))
     nil
   end
 
-  def self.select(*ops : SendOp | ReceiveOp)
-    select ops
+  def self.select(*ops : SelectAction)
+    self.select ops
   end
 
-  def self.select(ops : Tuple | Array)
+  def self.select(ops : Tuple | Array, has_else = false)
     loop do
       ops.each_with_index do |op, index|
         if op.ready?
@@ -94,22 +101,28 @@ abstract class Channel(T)
         end
       end
 
+      if has_else
+        return ops.size, nil
+      end
+
       ops.each &.wait
       Scheduler.reschedule
       ops.each &.unwait
     end
   end
 
-  def send_op(value : T)
-    SendOp.new(self, value)
+  def send_select_action(value : T)
+    SendAction.new(self, value)
   end
 
-  def receive_op
-    ReceiveOp.new(self)
+  def receive_select_action
+    ReceiveAction.new(self)
   end
 
-  struct ReceiveOp(T)
-    def initialize(@channel : Channel(T))
+  struct ReceiveAction(C)
+    include SelectAction
+
+    def initialize(@channel : C)
     end
 
     def ready?
@@ -129,8 +142,10 @@ abstract class Channel(T)
     end
   end
 
-  struct SendOp(T)
-    def initialize(@channel : Channel(T), @value : T)
+  struct SendAction(C, T)
+    include SelectAction
+
+    def initialize(@channel : C, @value : T)
     end
 
     def ready?
@@ -153,7 +168,7 @@ end
 
 class Channel::Buffered(T) < Channel(T)
   def initialize(@capacity = 32)
-    @queue = Array(T).new(@capacity)
+    @queue = Deque(T).new(@capacity)
     super()
   end
 
@@ -169,6 +184,8 @@ class Channel::Buffered(T) < Channel(T)
     @queue << value
     Scheduler.enqueue @receivers
     @receivers.clear
+
+    self
   end
 
   private def receive_impl
@@ -194,9 +211,11 @@ class Channel::Buffered(T) < Channel(T)
 end
 
 class Channel::Unbuffered(T) < Channel(T)
+  @sender : Fiber?
+
   def initialize
     @has_value = false
-    @value :: T
+    @value = uninitialized T
     super
   end
 
@@ -213,7 +232,7 @@ class Channel::Unbuffered(T) < Channel(T)
     @has_value = true
     @sender = Fiber.current
 
-    if receiver = @receivers.pop?
+    if receiver = @receivers.shift?
       receiver.resume
     else
       Scheduler.reschedule
@@ -224,7 +243,7 @@ class Channel::Unbuffered(T) < Channel(T)
     until @has_value
       yield if @closed
       @receivers << Fiber.current
-      if sender = @senders.pop?
+      if sender = @senders.shift?
         sender.resume
       else
         Scheduler.reschedule

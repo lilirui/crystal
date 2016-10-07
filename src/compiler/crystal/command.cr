@@ -1,40 +1,46 @@
-require "json"
+# Here we process the compiler's command line options and
+# execute the relevant commands.
+#
+# Some commands are implemented in the `commands` directory,
+# some in `tools`, some here, and some create a Compiler and
+# manipulate it.
+#
+# Other commands create a `Compiler` and use it to to build
+# an executable.
 
-module Crystal
-  def self.tempfile(basename)
-    Dir.mkdir_p Config.cache_dir
-    File.join(Config.cache_dir, "crystal-run-#{basename}.tmp")
-  end
-end
+require "json"
+require "./command/*"
 
 class Crystal::Command
   USAGE = <<-USAGE
-Usage: crystal [command] [switches] [program file] [--] [arguments]
+    Usage: crystal [command] [switches] [program file] [--] [arguments]
 
-Command:
-    init                     generate new crystal project
-    build                    compile program file
-    deps                     install project dependencies
-    docs                     generate documentation
-    eval                     eval code from args or standard input
-    run (default)            compile and run program file
-    spec                     compile and run specs (in spec directory)
-    tool                     run a tool
-    --help, -h               show this help
-    --version, -v            show version
-USAGE
+    Command:
+        init                     generate a new project
+        build                    build an executable
+        deps                     install project dependencies
+        docs                     generate documentation
+        env                      print Crystal environment information
+        eval                     eval code from args or standard input
+        play                     starts crystal playground server
+        run (default)            build and run program
+        spec                     build and run specs (in spec directory)
+        tool                     run a tool
+        help, --help, -h         show this help
+        version, --version, -v   show version
+    USAGE
 
   COMMANDS_USAGE = <<-USAGE
-Usage: crystal tool [tool] [switches] [program file] [--] [arguments]
+    Usage: crystal tool [tool] [switches] [program file] [--] [arguments]
 
-Tool:
-    browser                  open an http server to browse program file
-    context                  show context for given location
-    hierarchy                show type hierarchy
-    implementations          show implementations for given call in location
-    types                    show type of main variables
-    --help, -h               show this help
-USAGE
+    Tool:
+        context                  show context for given location
+        format                   format project, directories and/or files
+        hierarchy                show type hierarchy
+        implementations          show implementations for given call in location
+        types                    show type of main variables
+        --help, -h               show this help
+    USAGE
 
   VALID_EMIT_VALUES = %w(asm llvm-bc llvm-ir obj)
 
@@ -42,11 +48,11 @@ USAGE
     new(options).run
   end
 
-  def initialize(@options)
+  private getter options
+
+  def initialize(@options : Array(String))
     @color = true
   end
-
-  private getter options
 
   def run
     command = options.first?
@@ -56,36 +62,45 @@ USAGE
       when "init".starts_with?(command)
         options.shift
         init
-      when "build".starts_with?(command)
+      when "build".starts_with?(command), "compile".starts_with?(command)
+        if "compile".starts_with?(command)
+          STDERR.puts "Deprecation: The compile command was renamed to build and will be removed in a future version."
+        end
         options.shift
         build
+      when "play".starts_with?(command)
+        options.shift
+        playground
       when "deps".starts_with?(command)
         options.shift
         deps
       when "docs".starts_with?(command)
         options.shift
         docs
-      when "eval".starts_with?(command)
+      when command == "env"
+        options.shift
+        env
+      when command == "eval"
         options.shift
         eval
       when "run".starts_with?(command)
         options.shift
-        run_command
+        run_command(single_file: false)
       when "spec/".starts_with?(command)
         options.shift
-        run_specs
+        spec
       when "tool".starts_with?(command)
         options.shift
         tool
-      when "--help" == command, "-h" == command
+      when "help".starts_with?(command), "--help" == command, "-h" == command
         puts USAGE
         exit
-      when "--version" == command, "-v" == command
-        puts "Crystal #{Crystal.version_string}"
+      when "version".starts_with?(command), "--version" == command, "-v" == command
+        puts Crystal::Config.description
         exit
       else
         if File.file?(command)
-          run_command
+          run_command(single_file: true)
         else
           error "unknown command: #{command}"
         end
@@ -94,6 +109,8 @@ USAGE
       puts USAGE
       exit
     end
+  rescue ex : Crystal::ToolException
+    error ex.message
   rescue ex : Crystal::Exception
     ex.color = @color
     if @config.try(&.output_format) == "json"
@@ -102,25 +119,27 @@ USAGE
       puts ex
     end
     exit 1
+  rescue ex : OptionParser::Exception
+    error ex.message
   rescue ex
     puts ex
     ex.backtrace.each do |frame|
       puts frame
     end
     puts
-    error "you've found a bug in the Crystal compiler. Please open an issue, including source code that will allow us to reproduce the bug: https://github.com/manastech/crystal/issues"
+    error "you've found a bug in the Crystal compiler. Please open an issue, including source code that will allow us to reproduce the bug: https://github.com/crystal-lang/crystal/issues"
   end
 
   private def tool
     tool = options.first?
     if tool
       case
-      when "browser".starts_with?(tool)
-        options.shift
-        browser
       when "context".starts_with?(tool)
         options.shift
         context
+      when "format".starts_with?(tool)
+        options.shift
+        format
       when "hierarchy".starts_with?(tool)
         options.shift
         hierarchy
@@ -151,171 +170,47 @@ USAGE
     config.compile
   end
 
-  private def browser
-    config, result = compile_no_codegen "tool browser"
-    Browser.open result.original_node
-  end
-
-  private def eval
-    if options.empty?
-      program_source = STDIN.gets_to_end
-      program_args = [] of String
-    else
-      double_dash_index = options.index("--")
-      if double_dash_index
-        program_source = options[0 ... double_dash_index].join " "
-        program_args = options[double_dash_index + 1 .. -1]
-      else
-        program_source = options.join " "
-        program_args = [] of String
-      end
-    end
-
-    compiler = Compiler.new
-    sources = [Compiler::Source.new("eval", program_source)]
-
-    output_filename = tempfile "eval"
-
-    result = compiler.compile sources, output_filename
-    execute output_filename, program_args
-  end
-
   private def hierarchy
-    config, result = compile_no_codegen "tool hierarchy", hierarchy: true
-    Crystal.print_hierarchy result.program, config.hierarchy_exp
+    config, result = compile_no_codegen "tool hierarchy", hierarchy: true, top_level: true
+    Crystal.print_hierarchy result.program, config.hierarchy_exp, config.output_format
   end
 
-  private def implementations
-    cursor_command("implementations") do |location, config, result|
-      result = ImplementationsVisitor.new(location).process(result)
-    end
-  end
-
-  private def context
-    cursor_command("context") do |location, config, result|
-      result = ContextVisitor.new(location).process(result)
-    end
-  end
-
-  private def cursor_command(command)
-    config, result = compile_no_codegen command, cursor_command: true
-
-    format = config.output_format
-
-    file = ""
-    line = ""
-    col = ""
-
-    loc = config.cursor_location.not_nil!.split(':')
-    if loc.size == 3
-      file, line, col = loc
-    end
-
-    file = File.expand_path(file)
-
-    result = yield Location.new(line.to_i, col.to_i, file), config, result
-
-    case format
-    when "json"
-      result.to_json(STDOUT)
-    else
-      result.to_text(STDOUT)
-    end
-  end
-
-  private def run_command
-    config = create_compiler "run", run: true
+  private def run_command(single_file = false)
+    config = create_compiler "run", run: true, single_file: single_file
     if config.specified_output
       config.compile
       return
     end
 
-    output_filename = tempfile(config.output_filename)
+    output_filename = Crystal.tempfile(config.output_filename)
 
     result = config.compile output_filename
     execute output_filename, config.arguments unless config.compiler.no_codegen?
   end
 
-  private def run_specs
-    target_index = options.index{|o| !o.starts_with? '-'}
-    if target_index
-      target_filename_and_line_number = options[target_index]
-      splitted = target_filename_and_line_number.split ':', 2
-      target_filename = splitted[0]
-      if File.file?(target_filename)
-        options.delete_at target_index
-        cwd = Dir.working_directory
-        if target_filename.starts_with?(cwd)
-          target_filename = "#{target_filename[cwd.size .. -1]}"
-        end
-        if splitted.size == 2
-          target_line = splitted[1]
-          options << "-l" << target_line
-        end
-      elsif File.directory?(target_filename)
-        target_filename = "#{target_filename}/**"
-      else
-        error "'#{target_filename}' is not a file"
-      end
-    else
-      target_filename = "spec/**"
-    end
-
-    sources = [Compiler::Source.new("spec", %(require "./#{target_filename}"))]
-
-    output_filename = tempfile "spec"
-
-    compiler = Compiler.new
-    result = compiler.compile sources, output_filename
-    execute output_filename, options
-  end
-
-  private def deps
-    path_to_shards = `which shards`.chomp
-    if path_to_shards.empty?
-      error "`shards` executable is missing. Please install shards: https://github.com/ysbaddaden/shards"
-    end
-
-    Process.run(path_to_shards, args: options, output: true, error: true)
-  end
-
-  private def docs
-    if options.empty?
-      sources = [Compiler::Source.new("require", %(require "./src/**"))]
-      included_dirs = [] of String
-    else
-      filenames = options
-      sources = gather_sources(filenames)
-      included_dirs = sources.map { |source| File.dirname(source.filename) }
-    end
-
-    included_dirs << File.expand_path("./src")
-
-    output_filename = tempfile "docs"
-
-    compiler = Compiler.new
-    compiler.wants_doc = true
-    result = compiler.compile sources, output_filename
-    Crystal.generate_docs result.program, included_dirs
-  end
-
   private def types
     config, result = compile_no_codegen "tool types"
-    Crystal.print_types result.original_node
+    Crystal.print_types result.node
   end
 
-  private def compile_no_codegen(command, wants_doc = false, hierarchy = false, cursor_command = false)
+  private def compile_no_codegen(command, wants_doc = false, hierarchy = false, cursor_command = false, top_level = false)
     config = create_compiler command, no_codegen: true, hierarchy: hierarchy, cursor_command: cursor_command
     config.compiler.no_codegen = true
     config.compiler.wants_doc = wants_doc
-    {config, config.compile}
+    result = top_level ? config.top_level_semantic : config.compile
+    {config, result}
   end
 
   private def execute(output_filename, run_args)
     begin
-      status = Process.run(output_filename, args: run_args, input: true, output: true, error: true)
+      Process.run(output_filename, args: run_args, input: true, output: true, error: true) do |process|
+        # Ignore the signal so we don't exit the running process
+        # (the running process can still handle this signal)
+        Signal::INT.ignore # do
+      end
+      status = $?
     ensure
-      File.delete output_filename
+      File.delete(output_filename) rescue nil
     end
 
     if status.normal_exit?
@@ -326,6 +221,8 @@ USAGE
         STDERR.puts "Program was killed"
       when Signal::SEGV
         STDERR.puts "Program exited because of a segmentation fault (11)"
+      when Signal::INT
+        # OK, bubbled from the sub-program
       else
         STDERR.puts "Program received and didn't handle signal #{status.exit_signal} (#{status.exit_signal.value})"
       end
@@ -334,18 +231,29 @@ USAGE
     end
   end
 
-  private def tempfile(basename)
-    Crystal.tempfile(basename)
-  end
-
-  record CompilerConfig, compiler, sources, output_filename, original_output_filename, arguments, specified_output, hierarchy_exp, cursor_location, output_format do
+  record CompilerConfig,
+    compiler : Compiler,
+    sources : Array(Compiler::Source),
+    output_filename : String,
+    original_output_filename : String,
+    arguments : Array(String),
+    specified_output : Bool,
+    hierarchy_exp : String?,
+    cursor_location : String?,
+    output_format : String? do
     def compile(output_filename = self.output_filename)
-      compiler.original_output_filename = original_output_filename
+      compiler.emit_base_filename = original_output_filename
       compiler.compile sources, output_filename
+    end
+
+    def top_level_semantic
+      compiler.top_level_semantic sources
     end
   end
 
-  private def create_compiler(command, no_codegen = false, run = false, hierarchy = false, cursor_command = false)
+  private def create_compiler(command, no_codegen = false, run = false,
+                              hierarchy = false, cursor_command = false,
+                              single_file = false)
     compiler = Compiler.new
     link_flags = [] of String
     opt_filenames = nil
@@ -361,8 +269,8 @@ USAGE
 
       unless no_codegen
         unless run
-          opts.on("--cross-compile flags", "cross-compile") do |cross_compile|
-            compiler.cross_compile_flags = cross_compile
+          opts.on("--cross-compile", "cross-compile") do |cross_compile|
+            compiler.cross_compile = true
           end
         end
         opts.on("-d", "--debug", "Add symbolic debug info") do
@@ -371,7 +279,7 @@ USAGE
       end
 
       opts.on("-D FLAG", "--define FLAG", "Define a compile-time flag") do |flag|
-        compiler.add_flag flag
+        compiler.flags << flag
       end
 
       unless no_codegen
@@ -396,13 +304,17 @@ USAGE
         output_format = f
       end
 
+      opts.on("--error-trace", "Show full error trace") do
+        compiler.show_error_trace = true
+      end
+
       opts.on("-h", "--help", "Show this message") do
         puts opts
-        exit 1
+        exit
       end
 
       unless no_codegen
-        opts.on("--ll", "Dump ll to .crystal directory") do
+        opts.on("--ll", "Dump ll to Crystal's cache directory") do
           compiler.dump_ll = true
         end
         opts.on("--link-flags FLAGS", "Additional flags to pass to the linker") do |some_link_flags|
@@ -467,6 +379,11 @@ USAGE
     filenames = opt_filenames.not_nil!
     arguments = opt_arguments.not_nil!
 
+    if single_file && filenames.size > 1
+      arguments = filenames[1..-1] + arguments
+      filenames = [filenames[0]]
+    end
+
     if filenames.size == 0 || (cursor_command && cursor_location.nil?)
       puts option_parser
       exit 1
@@ -484,14 +401,15 @@ USAGE
 
     output_filename ||= original_output_filename
     output_format ||= "text"
+    if !["text", "json"].includes?(output_format)
+      error "You have input an invalid format, only text and JSON are supported"
+    end
 
-    if !no_codegen && Dir.exists?(output_filename)
+    if !no_codegen && !run && Dir.exists?(output_filename)
       error "can't use `#{output_filename}` as output filename because it's a directory"
     end
 
     @config = CompilerConfig.new compiler, sources, output_filename, original_output_filename, arguments, specified_output, hierarchy_exp, cursor_location, output_format
-  rescue ex : OptionParser::Exception
-    error ex.message
   end
 
   private def gather_sources(filenames)
@@ -504,6 +422,29 @@ USAGE
     end
   end
 
+  private def setup_simple_compiler_options(compiler, opts)
+    opts.on("-d", "--debug", "Add symbolic debug info") do
+      compiler.debug = true
+    end
+    opts.on("-D FLAG", "--define FLAG", "Define a compile-time flag") do |flag|
+      compiler.flags << flag
+    end
+    opts.on("--error-trace", "Show full error trace") do
+      compiler.show_error_trace = true
+    end
+    opts.on("--release", "Compile in release mode") do
+      compiler.release = true
+    end
+    opts.on("-s", "--stats", "Enable statistics output") do
+      compiler.stats = true
+    end
+    opts.on("-h", "--help", "Show this message") do
+      puts opts
+      exit
+    end
+    opts.invalid_option { }
+  end
+
   private def validate_emit_values(values)
     values.each do |value|
       unless VALID_EMIT_VALUES.includes?(value)
@@ -513,9 +454,9 @@ USAGE
     values
   end
 
-  private def error(msg)
+  private def error(msg, exit_code = 1)
     # This is for the case where the main command is wrong
     @color = false if ARGV.includes?("--no-color")
-    Crystal.error msg, @color
+    Crystal.error msg, @color, exit_code: exit_code
   end
 end

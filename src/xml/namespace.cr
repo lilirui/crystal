@@ -1,5 +1,5 @@
 struct XML::Namespace
-  getter document
+  getter document : Node
 
   def initialize(@document : Node, @ns : LibXML::NS*)
   end

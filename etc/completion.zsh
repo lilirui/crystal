@@ -6,11 +6,11 @@ _crystal_commands() {
   local -a commands
   commands=(
     "init:generate new crystal project"
-    "build:compile program file"
-    "browser:open an http server to browse program file"
+    "compile:compile program file"
     "deps:install project dependencies"
     "docs:generate documentation"
     "eval:eval code"
+    "play:starts playground server"
     "hierarchy:show type hierarchy"
     "run:compile and run program file"
     "spec:compile and run specs (in spec directory)"
@@ -29,7 +29,7 @@ local -a common_args; common_args=(
 local -a programfile; programfile='*:Crystal File:_files -g "*.cr(.)"'
 
 # TODO make 'emit' allow completion with more than one
-local -a shared_run_build; shared_run_build=(
+local -a shared_run_compile; shared_run_compile=(
   $programfile \
   $common_args \
   '(--ll)-ll[Dump ll to .crystal directory]' \
@@ -53,17 +53,11 @@ _crystal-init() {
     && ret=0
 }
 
-_crystal-build() {
+_crystal-compile() {
   _arguments \
-    $shared_run_build \
+    $shared_run_compile \
     '(--cross-compile)--cross-compile[cross-compile FLAGS]:' \
     '(--target)--target[target triple]:' \
-    && ret=0
-}
-
-_crystal-browser() {
-  _arguments \
-    $common_args \
     && ret=0
 }
 
@@ -76,7 +70,17 @@ _crystal-hierarchy() {
 
 _crystal-run() {
   _arguments \
-    $shared_run_build \
+    $shared_run_compile \
+    && ret=0
+}
+
+_crystal-play() {
+  _arguments \
+    $programfile \
+    '(--port)--port[PORT]:' \
+    '(--binding)--binding[HOST]:' \
+    '(--verbose)--verbose[display detailed information of executed code]' \
+    '(-h --help)'{-h,--help}'[show help]' \
     && ret=0
 }
 
@@ -108,4 +112,3 @@ case $state in
 esac
 }
 _crystal
-

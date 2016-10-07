@@ -1,3 +1,501 @@
+## 0.19.4  (07-10-2016)
+
+* Added support for OpenBSD (thanks @wmoxam and @ysbaddaden)
+* More iconv fixes for FreeBSD (thanks @ysbaddaden)
+* Changed how `require` works for the upcoming `shards` release (this is backwards compatible). See https://github.com/crystal-lang/crystal/pull/2788
+* Added `Atomic` and exposed all LLVM atomic instructions to Crystal (needed to implemented multiple-thread support)
+* Added `Process.executable_path` (thanks @kostya, @whereami and @ysbaddaden)
+* Added `HTML.unescape` (thanks @dukex)
+* Added `Char#+(Int)` and `Char#-(Int)`
+* [A few bug fixes](https://github.com/crystal-lang/crystal/issues?q=is%3Aclosed+milestone%3A0.19.4)
+
+## 0.19.3  (30-09-2016)
+
+* `crystal eval` now accepts some flags like `--stats`, `--release` and `--help`
+* Added `File.chown` and `File.chmod` (thanks @ysbaddaden)
+* Added `Time::Span.zero` (useful for doing `sum`) (thanks @RX14)
+* Added docs to `OAuth` and `OAuth2`
+* [Several bug fixes](https://github.com/crystal-lang/crystal/issues?q=is%3Aclosed+milestone%3A0.19.3)
+
+## 0.19.2  (16-09-2016)
+
+* Generic type variables no longer need to be single-letter names (for example `class Gen(Foo)` is now possible)
+* Added syntax to denote free variables: `def foo(x : T) forall T`. The old rule of single-letter name still applies but will be removed in the future.
+* Removed the restriction that top-level types and constants can't have single-letter names
+* Added `@[Extern]` attribute to mark regular Crystal structs as being able to be used in C bindings
+* Faster `Char#to_s` when it's ASCII: this improves the performance of JSON and CSV parsing
+* `crystal spec`: allow passing `--release` and other options
+* `crystal spec`: allow running all specs in a given directory
+* `crystal playground`: support custom workbook resources (thanks @bcardiff)
+* `crystal playground`: standard output now understands ANSI colors (thanks @bcardiff)
+* Added many more macro methods to traverse AST nodes (thanks @BlaXpirit)
+* Error messages no longer include a type trace by default, pass `--error-trace` to show the full trace (the trace is often useless and makes it harder to understand error messages)
+* [Several bug fixes](https://github.com/crystal-lang/crystal/issues?q=is%3Aclosed+milestone%3A0.19.2)
+
+## 0.19.1  (09-09-2016)
+
+* Types (class, module, etc.) can now be marked as `private`.
+* Added `WeakRef`  (thanks @bcardiff)
+* [Several bug fixes](https://github.com/crystal-lang/crystal/issues?q=is%3Aclosed+milestone%3A0.19.1)
+
+## 0.19.0  (02-09-2016)
+
+* **(breaking change)** Added `select` keyword
+* **(breaking change)** Removed $global variables. Use @@class variables instead.
+* **(breaking change)** Heredoc now ends when the matching identifier is found, either followed by a space or by a non-identifier
+* **(breaking change)** Assignment to a local variable inside an assignment to that same variable is now an error
+* **(breaking change)** Type names like `T`, `T1`, `U`, etc., are now disallowed at the top level, to avoid conflicts with free variables
+* **(breaking change)** Type lookup (`Foo::Bar::Baz`) had some incorrect behaviour that now is fixed. This can break existing code that relied on this incorrect behaviour. The fix is to fully qualify types (`::Foo::Bar::Baz`)
+* **(breaking change)** In relationships like `class Bar < Foo(Baz)` and `include Moo(Baz)`, all of `Foo`, `Moo` and `Baz` must be defined before that point (this was not always the case in previous versions)
+* **(breaking change)** Removed the deprecated syntax `x as T`
+* **(breaking change)** Removed block form of `String#match`
+* **(breaking change)** Removed `IO#read_nonblock`
+* **(breaking change)** `Int#/` now performs floored division. Use `Int#tdiv` for truncated division (see their docs to learn the difference)
+* Added support for LLVM 3.8 (thanks @omarroth)
+* `||` now does type filtering
+* Generic inheritance should now work well, and (instantiated) generic modules can now be used as the type of instance variables
+* `NamedTuple` can now be accessed with strings too (thanks @jhass)
+* `Base64` can now encode and decode directly to an `IO` (thanks @kostya)
+* `BigInt` now uses GMP implementation of gcd and lcm (thanks @endSly)
+* `ECR` now supports removing leading and trailing whitespace (`<%-`, `-%>`)
+* `HTTP::Request#path` now never returns `nil`: it fallbacks to `"/"` (thanks @jhass)
+* `String#tr(..., "")` is now the same as `String#delete`
+* `tool hierarchy` now supports `--format json` (thanks @bmulvihill)
+* Added `Char#ascii?`
+* Added `Class#nilable?` and `Union#nilable?`
+* Added `Hash#has_value?` (thanks @kachick)
+* Added `IO::Sized` and `IO::Delimited` (thanks @RX14)
+* Added `IO::Hexdump` (thanks @ysbaddaden)
+* Added `IO#noecho` and `IO#noecho!` (thanks @jhass)
+* Added `Logger.new(nil)` to create a null logger
+* Added `OptionParser#missing_option` and `OptionParser#invalid_option` (thanks @jhass)
+* Added `Process.exists?`, `Process#exists?` and `Process#terminated?` (thanks @jhass)
+* Added `Process.exec` (thanks @jhass)
+* Added `Slice#copy_to`, `Slice#copy_from`, `Slice#move_to` and `Slice#move_from` (thanks @RX14)
+* Added `URI#==` and `URI#hash` (thanks @timcraft)
+* Added `YAML#parse(IO)`
+* Added `Indexable` module that `Array`, `Slice`, `Tuple` and `StaticArray` include
+* Added `indent` parameter to `to_pretty_json`
+* Added lazy form of `getter` and `property` macros
+* Added macro methods to access an ASTNode's location
+* Unified String and Char to integer/float conversion API (thanks @jhass)
+* [Lots of bug fixes](https://github.com/crystal-lang/crystal/milestone/5?closed=1)
+
+## 0.18.7 (03-07-2016)
+
+* The `compile` command was renamed back to `build`. The `compile` command is deprecated and will be removed in a future version
+* Fibers now can be spawned with a name
+* ECR macros can now be required with just `require "ecr"`
+* [Several bugs fixes and enhancements](https://github.com/crystal-lang/crystal/issues?q=milestone%3A0.18.7+is%3Aclosed)
+
+## 0.18.6 (28-06-2016)
+
+* `T?` is now parsed as `Union(T, Nil)` outside the type grammar
+* Added `String#sub` overloads for replacing an index or range with a char or string
+* [Several bugs fixes](https://github.com/crystal-lang/crystal/issues?q=milestone%3A0.18.6+is%3Aclosed)
+
+## 0.18.5 (27-06-2016)
+
+* Added `OpenSSL::SSL::Socket#alpn_protocol`
+* Added `IO#copy(src, desc, limit)` (thanks @jreinert)
+* Added `TypeNode#instance` macro method
+* [Several bugs fixes](https://github.com/crystal-lang/crystal/issues?q=milestone%3A0.18.5+is%3Aclosed)
+
+## 0.18.4 (21-06-2016)
+
+* Fixed [#2887](https://github.com/crystal-lang/crystal/issues/2887)
+* Fix broken specs
+
+## 0.18.3 (21-06-2016)
+
+* `TypeNode`: added `<`, `<=`, `>` and `>=` macro methods
+* [Several bugs fixes](https://github.com/crystal-lang/crystal/issues?q=milestone%3A0.18.3+is%3Aclosed)
+
+## 0.18.2 (16-06-2016)
+
+* Fixed building Crystal from the source tarball
+
+## 0.18.1 (16-06-2016)
+
+* Spec: passing `--profile` shows the slowest 10 specs (thanks @mperham)
+* Added `StringLiteral#>` and `StringLiteral#<` in macros
+* [Several bugs fixes](https://github.com/crystal-lang/crystal/issues?q=milestone%3A0.18.1+is%3Aclosed)
+
+## 0.18.0 (14-06-2016)
+
+* **(breaking change)** `IniFile` was renamed to `INI`, and its method `load` renamed to `parse`
+* **(breaking change)** `Process.getpgid` was renamed to `Process.pgid`
+* **(breaking change)** An `Exception`'s backtrace is now set when it's raised, not when it's created: it's `backtrace` method raises if it's not set, and there's `backtrace?` to get it as a nilable array
+* **(breaking change)** `dup` is now correctly implemented in all types. `clone` is not defined by default, but some types in the standard library do. Also check `Object#def_clone`
+* **(breaking change)** the `method_missing` macro only accepts a single argument: a `Call` now. The form that accepted 3 arguments was removed.
+* **(breaking change)** the `delegate` macro must now be used like `delegate method1, method2, ..., methodN, to: object`
+* **(breaking change)** `Hash#each_with_index` and `Hash#each_with_object` now yield a tuple (pair) and an index, because `Hash` is now `Enumerable`. Use `do |(key, value), index|` for this.
+* **(breaking change)** `{"foo": 1}` denotes a named tuple literal now, not a hash literal. Use `{"foo" => 1}` instead. This also applies to, for example `HTTP::Headers{...}`
+* **(breaking change)** Extra block arguments now give a compile-time error. This means that methods that yield more than once, one time with N arguments and another time with M arguments, with N < M, will always give an error. To fix this, add M - N `nil` fillers on the yield side (this makes it more explicit that `nil` was intended to be a block argument value)
+* **(breaking change)** `OpenSSL::SSL::Context` and `OpenSSL::SSL::Socket` can no longer be used directly anymore. Use their respective subclasses `OpenSSL::SSL::Context::Client`,
+  with `OpenSSL::SSL::Socket::Client`, `OpenSSL::SSL::Context::Server` with `OpenSSL::SSL::Socket::Server`.
+* **(breaking change)** TLS server and client sockets now use sane defaults, including support for hostname verification for client sockets, used by default in `HTTP::Client`.
+* **(breaking change)** The `ssl` option was renamed to `tls` in `HTTP::Client`, `HTTP::Server`, `HTTP::WebSocket`, `OAuth::Consumer`, `OAuth::Signature` and `OAuth2::AccessToken`.
+* The `dns_timeout` setting in a few classes like `HTTP::Client` and `TCPSocket` is now ignored until a next version supports a non-blocking `getaddrinfo` equivalent
+* `OpenSSL::SSL::Socket::Client` supports server name indication now.
+* The `build` command was renamed to `compile`. The `build` command is deprecated and will be removed in a future version
+* The `--cross-compile` flag no longer takes arguments, use `--target` and `-D`
+* Added a `Union` type that represents the type of a union, which can have class methods
+* Methods, procs and lib functions that are marked as returning `Void` now return `Nil`
+* Methods that are marked as returning `Nil` are not checked for a correct return type, they always return `nil` now
+* When `as` fails at runtime it now includes which type couldn't be cast
+* Macros can now be used inside `lib` and `enum` declarations
+* Macros can now be declared inside enums
+* Macro calls can now be used as enum values
+* Generic types can now include a splatted type variable. This already existed in the language (`Tuple(*T)`, `Proc(*T)`) but there was no syntax to define such types.
+* Class variables are now inherited (only their type, not their value). They are now similar to Ruby class instance variables.
+* Splats in `yield` can now be used
+* Splat in block arguments can now be used.
+* Added block auto-unpacking: if a method yields a tuple and a block specifies more then one block argument, the tuple is unpacked to these arguments
+* String literals are now allowed as external method arguments, to match named tuples and named arguments
+* `sizeof` and `instance_sizeof` can now be used as generic type arguments (mostly useful combined with `StaticArray`)
+* `Hash`, `HTTP::Headers`, `HTTP::Params` and `ENV` now include the `Enumerable` module
+* `Proc` is now `Proc(*T, R)`
+* `Tuple(*T).new` and `NamedTuple(**T).new` now correctly match the given `T` (#1828)
+* `Float64#to_s` now produces an ever more accurate output
+* `JSON` parsing now correctly handle floats with many digits
+* `JSON.mapping` and `YAML.mapping` now also accept named arguments in addition to a hash literal or named tuple literal
+* `Int#chr` now raises if the integer is out of a char's range. The old non-raising behaviour is now in `Int#unsafe_chr`.
+* The output of `pp x` is now `x # => ...` instead of `x = ...`
+* The output of the `debug()` macro method now tries to format the code (pass `false` to disable this)
+* Added `JSON` and `YAML` parsing and mapping for unions
+* Added `FileUtils.cp_r` (thanks @Dreauw)
+* Added `Tuple.from` and `NamedTuple.from`  (thanks @jhass)
+* Added `XML.escape` (thanks @juanedi)
+* Added `HTTP::Server::Response#respond_with_error` (thanks @jhass)
+* Added `TCPServer#accept?`
+* Added optional `base` argument to `Char#digit?` and `Char#hex?` (thanks @mirek)
+* Added `flag?` macro method, similar to using `ifdef`. `ifdef` is deprecated and will be removed in a future version.
+* Added `YAML::PullParser#read_raw`
+* Added `Proc#partial`
+* Added `Socket.ip?(str)` to validate IPv4 and IPv6 addresses
+* Added `Bytes` as an alias of `Slice(UInt8)`
+* Added `RangeLiteral` macro methods: `begin`, `end`, `excludes_end?`, `map` and `to_a`
+* Added `ArrayLiteral#[range]` and `ArrayLiteral#[from, to]` in macros (applicable for `TupleLiteral` too)
+* Added `Generic` macro methods: `name`, `type_vars`, `named_args`
+* Spec: added JUnit formatter output (thanks @juanedi)
+* The `tls` option in `HTTP::Client` can now take a `OpenSSL::SSL::Context::Client` in addition to `true`.
+* `HTTP::LogHandler` logs exceptions now (thanks @jhass)
+* `HTTP::ErrorHandler` does not tell the client which exception occurred by default (can be enabled with a `verbose` flag) (thanks @jhass)
+* Several bug fixes
+
+## 0.17.4 (2016-05-26)
+
+* Added string literals without interpolations nor escapes: `%q{...}` and `<<-'HEREDOC'`. Also added `%Q{...}` with the same meaning as `%{...}`.
+* A method that uses `@type` inside a macro expression is now automatically detected as being a `macro def`
+* `Float64#to_s` now produces a more accurate output
+* Added `Crystal::VERSION` and other compiler-metadata constants
+* Added `Object.from_json(string_or_io, root)` and a `root` option to `JSON.mapping`
+* Added `System.hostname` (thanks @miketheman)
+* The `property`, `getter` and `setter` macros now also accept assignments (`property x = 0`)
+* The `record` macro now also accepts assignments (`record Point, x = 0, y = 0`)
+* Comparison in macros between `MacroId` and `StringLiteral` or `SymbolLiteral` now work as expected (compares the `id` representation)
+* Some bug fixes
+
+## 0.17.3 (2016-05-20)
+
+* Fixed: multiple macro runs executions didn't work well (#2624)
+* Fixed incorrect formatting of underscore in unpacked block arguments
+* Fixed wrong codegen for global variable assignment in type declaration (#2619)
+* Fixed initialize default arguments where evaluated at the class scope (#731)
+* The type guesser can now infer a block type from `def initialize(&@block)`
+* Allow type restriction in double splat argument (similar to restriction in single splat)
+* Allow splat restriction in splat argument (useful for `Tuple.new`)
+* Allow double splat restriction in double splat argument (useful for `NamedTuple.new`)
+
+## 0.17.2 (2016-05-18)
+
+* Fixed crash when using pointerof of constant
+
+## 0.17.1 (2016-05-18)
+
+* Constants and class vars are no longer initialized before "main". Now their initialization order goes along with "main", similar to how it works in Ruby (much more intuitive)
+* Added syntax for unpacking block arguments: `foo { |(x, y)| ... }`
+* Added `NamedTupleLiteral#map` and `HashLiteral#map` in macros (thanks @jhass)
+* Fixed wrong codgen for tuples/named tuples merge with pass-by-value types
+* Formatter: fixed incorrect format for named tuple type
+
+## 0.17.0 (2016-05-17)
+
+* **(breaking change)** Macro defs are now parsed like regular methods. Enclose the body with `{% begin %} .. {% end %}` if you needed that behaviour
+* **(breaking change)** A union of two tuples of the same size results in a tuple with the unions of the types in each position. This only affects code that later tested a tuple's type with `is_a?`, for example `tuple.is_a?({Int32, String})`
+* **(breaking change)** Method arguments have now a different semantic. This only affects methods that had a splat argument followed by other arguments.
+* **(breaking change)** The syntax `{foo: 1, bar: 2}` now denotes a `NamedTuple`, not a `Hash` with symbol as keys. Use `{:foo => 1, :bar => 2}` instead
+* The syntax `exp as Type` is now deprecated and will be removed in the next version. Use `crystal tool format` to automatically upgrade your code
+* The compiler now gives an error when trying to define a method named `!`, `is_a?`, `responds_to?`, `nil?`, `as` or `as?`
+* Added the `NamedTuple` type
+* Added double splatting
+* Added external argument names
+* Macro defs return type is no longer mandatory
+* Added `as?`: similar to `as`, but returns `nil` when the type doesn't match
+* Added `Number::Primitive` alias
+* Added `Tuple#+(Tuple)`
+* Added `ArrayLiteral#+(ArrayLiteral)` in macros
+* `Crypto::MD5` now allows `Slice(UInt8)` and a block form (thanks @will)
+* Added docs for XML (thanks @Hamdiakoguz)
+* Many bug fixes
+
+## 0.16.0 (2016-05-05)
+
+* **(breaking change)** Instance, class and global variables types must be told to the compiler, [either explicitly or through a series of syntactic rules](http://crystal-lang.org/docs/syntax_and_semantics/type_inference.html)
+* **(breaking change)** Non-abstract structs cannot be inherited anymore (abstract structs can), check the [docs](http://crystal-lang.org/docs/syntax_and_semantics/structs.html) to know why. In many cases you can use modules instead.
+* **(breaking change)** Class variables are now initialized at the beginning of the program (before "main"), make sure to read the docs about [class variables](http://crystal-lang.org/docs/syntax_and_semantics/class_variables.html) and [main](http://crystal-lang.org/docs/syntax_and_semantics/the_program.html)
+* **(breaking change)** Constants are now initialized at the beginning of the program (before "main"), make sure to read the docs about [constants](http://crystal-lang.org/docs/syntax_and_semantics/constants.html) and [main](http://crystal-lang.org/docs/syntax_and_semantics/the_program.html)
+* **(breaking change)** When doing `crystal program.cr arg1 arg2 arg3`, `arg1`, `arg2` and `arg3` are considered arguments to pass to the program (not the compiler). Use `crystal run program.cr arg1 ...` to consider `arg1` a file to include in the compilation.
+* **(breaking change)** `Int#**(Int)` now returns an integer, and raises if the argument is negative. Use a float base or exponent for negative exponents to work.
+* **(breaking change)** `Slice#to_s` and `StaticArray#to_s` now include their type name in the output
+* Support for FreeBSD and musl libc has landed (thanks @ysbaddaden)
+* The `.crystal` directory is now created at `$HOME/.cache/crystal` or `$HOME/.crystal` (or others similar), with a fallback to the current directory
+* `crystal doc` and `crystal tool hierarchy` are now much faster. Additionally, the hierarchy tool shows types for generic types, and doesn't show instantiations anymore (wasn't very useful)
+* `!` now does type filtering (for example you can do `!x || x.bar`, assuming `x` can be `nil` and the non-nil type responds to `bar`)
+* Named arguments can now match any argument, even if they don't have a default value. Make sure to read the [docs](http://crystal-lang.org/docs/syntax_and_semantics/default_and_named_arguments.html)
+* The `as` operator can now be written as a method: `exp.as(Type)` in addition to `exp as Type`. The old syntax will be removed in a few releases.
+* Added `@x : Int32 = 1` syntax (declaration + initialization)
+* `new`/`initialize` logic now works more as one would expect
+* Added `BigRational` (thanks @will)
+* Added `BigFloat` (thanks @Exilor)
+* Added `String#insert`
+* Added `Time::EpochConverter` and `Time::EpochMillisConverter`
+* Added `%s` (unix epoch) directive to `Time::Format`
+* `Time` now honours Dayling Saving and `ENV["TZ"]`
+* Added `HTTP::Server::Response#cookies` (thanks @jhass)
+* Added `Array#bsearch`, `Array#bsearch_index` and `Range#bsearch` (thanks @MakeNowJust)
+* Added `Range#reverse_each` iterator (thanks @omninonsense)
+* `JSON::Any`: added `as_...?` methods (thanks @DougEverly)
+* `JSON::Any` is now `Enumerable`
+* `YAML::Any` is now `Enumerable`
+* Added `JSON.parse_raw` that returns a `JSON::Type`
+* `JSON::PullParser`: added `#read_raw` to read a JSON value as a raw string (useful for delayed parsing). Also added `String::RawConverter` to be used with `JSON.mapping`.
+* `JSON` and `YAML`: enums, `BigInt` and `BigFloat` are now serializable
+* `ENV`: allow passing `nil` as a value to delete an environment variable
+* `Hash`: allow `Array | Tuple` arguments for `#select`, `#select!`, `#reject` and `#reject!`
+* `Crypto::Subtle.constant_time_compare` now returns `Bool`, and it can compare two strings in addition to two slices (thanks @skunkworker)
+* `HTTP::Server`: reset port zero after listening (thanks @splattael)
+* Added `File#each_line` iterator
+* Added `Number.slice`, `Number.static_array`, `Slice.[]` and `StaticArray.[]` to easily create slices and static arrays
+* Added `Slice#hexdump` (thanks @will)
+* Added `Enumerable#product` (thanks @dkhofer)
+* Fix: disallow using `out` with `Void*` pointers
+* Fixed bug in `XML::Node#namespace_scopes` (thanks @Hamdiakoguz)
+* Added docs for `INIFile` (thanks @EvanHahn)
+* Lots of bug fixes
+
+## 0.15.0 (2016-03-31)
+
+* **(breaking change)** `!` has now its meaning hardcoded in the language. If you defined it for a type it won't be invoked as a method anymore.
+* **(breaking change)** `nil?` has now its meaning hardcoded in the language. If you defined it for a type it won't be invoked as a method anymore.
+* **(breaking change)** `typeof` is now disallowed in `alias` declarations
+* Added `crystal tool format --check` to check that source code is properly formatted
+* `crystal play` (playground) added workbooks support, as well as improvements and stabilizations
+* Added `Tempfile.dirname` (thanks @DougEverly)
+* Added `Path#resolve` method in macros
+* `{{...}}` arguments to a macro call are now expanded before macro invocation (#2392)
+* Special variables (`$~` and `$?`) are now accessible after being defined in blocks (#2194)
+* Some bugs and regressions fixed
+
+## 0.14.2 (2016-03-22)
+
+* Fixed regression with formatter (#2348)
+* Fixed regression with block return types (#2347)
+* Fixed regression with openssl (https://github.com/crystal-lang/crystal/commit/78c12caf2366b01f949046e78ad4dab65d0d80d4)
+
+## 0.14.1 (2016-03-21)
+
+* Fixed some regressions in the formatter
+
+## 0.14.0 (2016-03-21)
+
+* **(breaking change)** The syntax of a method argument with a default value and a type restriction is now `def foo(arg : Type = default_value)`. The old `def foo(arg = default_value : Type)` was removed.
+* **(breaking change)** `Enumerable#take(n)` and `Iterator#take(n)` were renamed to `first(n)`
+* **(breaking change)** `Socket#addr` and `Socket#peeraddr` were renamed to `local_address` and `remote_address` respectively
+* **(breaking change)** Removed `Comparable#between?(a, z)`. Use `a <= x <= z` instead
+* **(breaking change)** `HTTP::WebSocketHandler` callbacks can now access the `HTTP::Context`. If you had a forwarding method to it you'll need to update it. See #2313.
+* New command `crystal play` that opens a playground for you to play in the browser :-) (thanks @bcardiff)
+* New command `crystal env` that prints environment information
+* `Spec`: you can now run multiple files with specified line numbers, as in `crystal spec file1.cr:10 file2.cr:20 ...`
+* Initial support for musl-libc (thanks @ysbaddaden)
+* Added `FileUtils.cp` (thanks @Dreauw)
+* Added `Array#first(n)` and `Array#last(n)` (thanks @greyblake)
+* Added `WebSocket#close` and properly handle disconnections
+* Added `UDPSocket#send` and `UDPSocket#receive` (thanks @tatey)
+* Added `Char#uppercase?` and `Char#lowercase?` (thanks @MaloJaffre`)
+* Added `sync_close` property to `OpenSSL::SSL::Socket`, `Zlib::Inflate` and `Zlib::Deflate`
+* Added `XML::Node#encoding` and `XML::Node#version`
+* Added `HTTP::Client::Response#success?` (thanks @marceloboeira)
+* Added `StaticArray#shuffle!(random)` (thanks @Nesqwik)
+* Added `Splat#exp` method in macros
+* Added fiber-safe `Mutex`
+* All `Int` types (except `BigInt`) can now be used in `JSON` and `YAML` mappings (thanks @marceloboeira)
+* Instance variable declarations/initializations now correctly work in generic classes and modules
+* Lots of bug fixes
+
+## 0.13.0 (2016-03-07)
+
+* **(breaking change)** `Matrix` was moved to a separate shard: [https://github.com/Exilor/matrix](https://github.com/Exilor/Matrix)
+* The syntax of a method argument with a default value and a type restriction is now `def foo(arg : Type = default_value)`. Run `crystal tool format` to automatically upgrade exsiting code to this new syntax. The old `def foo(arg = default_value : Type)` syntax will be removed in a next release.
+* Special handling of `case` with a tuple literal. See [#2258](https://github.com/crystal-lang/crystal/pull/2258).
+* Keywords can now be used for variable declaration, so `property end : Time` works as expected.
+* Comparison of signed vs. unsigned integers now always give a correct result
+* Allow declaring instance variables in non-generic module types (`module Moo; @x : Int32; end`)
+* Allow initializing instance variables in non-generic module types (`module Moo; @x = 1; end`)
+* `Spec`: allow setting multiple output formatters (thanks @marceloboeira)
+* `StringScanner`: improved performance
+* Added `foo.[0] = 1` and `foo.[0]` as valid syntax, similar to the one in `&.` blocks (thanks @MakeNowJust)
+* `CSV`: allow separate and quote characters different than comma and doble quote (thanks @jreinert)
+* `YAML`: support merge operator (`<<`) (thanks @jreinert)
+* Allow redefining primitive methods like `Int32#+(other : Int32)`
+* Allow defining macros with operator names like `[]`
+* `Levenshtein`: improved performance (thanks @tcrouch)
+* `HTTP::Client`: fixed incorrect parsing of chunked body
+* `HTTP::Client`: added a constructor with an `URI` argument (thanks @plukevdh)
+* `String`: `sub` and `gsub` now understand backreferences (thanks @bjmllr)
+* `Random`: added `Random#rand(Float64)` and `Random#rand(Range(Float, Float))` (thanks @AlexWayfer)
+* `HTML`: `HTLM.escape` includes more characters (thanks @Ryuuzakis)
+* Added `TypeNode.class` method in macros (thanks @waterlink)
+* `run` inside macros now also work with absolute paths (useful when used with `__DIR__`)
+* Added docs for `Math` and `StaticArray` (thanks @Zavydiel, @HeleneMyr)
+* Many bug fixes and some micro-optimizations
+
+## 0.12.0 (2016-02-16)
+
+* **(breaking change)** When used with a type declaration, the macros `property`, `getter`, `setter`, etc., declare instance variables with those types.
+* **(breaking change)** `JSON.mapping` and `YAML.mapping` declare instance variables with the given types.
+* **(breaking change)** `YAML.load` was renamed to `YAML.parse`, and it now returns a `YAML::Any`.
+* **(breaking change)** `embed_ecr` and `ecr_file` were renamed to `ECR.embed` and `ECR.def_to_s` (the old methods now produce a warning and will be removed in the next release).
+* Added encoding support: `IO#set_encoding`, `String#encode`, and `HTTP::Client` charset check.
+* Segmentation faults are now trapped and shown in a more friendlier way.
+* The `record` macro can now accept type declarations (for example `record Point, x : Int32, y : Int32`)
+* Added `Iterator#step` (thanks @jhass)
+* `Array#push` and `Array#unshift` can now accept multiple values and add the elements in an efficient way (thanks @arktisklada)
+* Added `default` option to `JSON.mapping` (thanks @kostya)
+* Added `default` option to `YAML.mapping` (thanks @jreinert)
+* Allow doing `case foo; when Foo.class` (and `Foo(T)` and `Foo(T).class`) in case expressions.
+* Added `Class#|` so a union type can be expresses as `Int32 | Char` in regular code.
+* Added `File.real_path` (thanks @jreinert)
+* Added `dns_timeout` for `HTTP::Client` (thanks @kostya)
+* Added dynamic width precision to `sprintf` (thanks @gtramontina)
+* `Markdown` now supports blockquotes and 1 level of list nesting (thanks @SebastianSzturo)
+* `p` now accepts multiple arguments
+* Many bug fixes and some optimizations
+
+## 0.11.1 (2016-01-25)
+* Fixed #2050, #2054, #2057, #2059, #2064
+* Fixed bug: HTTP::Server::Response headers weren't cleared after each request
+* Formatter would incorrectly change `property x :: Int32` to `property x = uninitialized Int32`
+
+## 0.11.0 (2016-01-23)
+
+* **(breaking change)** Syntax for type declarations changed from `var :: Type` to `var : Type`. The old syntax is still allowed but will be deprecated in the next version (run `crystal tool format` to automatically fix this)
+* **(breaking change)** Syntax for uninitialized variables, which used to be `var :: Type`, is now `var = uninitialized Type`. The old syntax is still allowed but will be deprecated in the next version (run `crystal tool format` to automatically fix this)
+* **(breaking change)** `HTTP::Server` refactor to support streaming. Check the [docs](http://crystal-lang.org/api/HTTP/Server.html) of `HTTP::Server` for upgrade instructions
+* **(breaking change)** Renamed `HTTP::WebSocketSession` to `HTTP::WebSocket`.
+* **(breaking change)** Heredocs now remove indentations according to the indentation of the closing identifier (thanks @rhysd)
+* **(breaking change)** Renamed `Enumerable#inject` to `Enumerable#reduce`
+* **(breaking change)** `next` and `return` semantic inside captured block has been swapped (#420)
+* Fibers context switch is now faster, done with inline assembly. `libpcl` is no longer used
+* Allow annotating the type of class and global variables
+* Support comments in ECR (thanks @ysbaddaden)
+* Security improvements to `HTTP::StaticFileHandler` (thanks @MakeNowJust)
+* Moved `seek`, `tell`, `pos` and `pos=` from `File` to `IO::FileDescriptor` (affects `Tempfile`)
+* `URI.parse` is now faster (thanks @will)
+* Many bug fixes, some really old ones involving issues with order of declaration
+
+## 0.10.2 (2016-01-13)
+
+* Fixed Directory Traversal Vulnerability in HTTP::StaticFileHandler (thanks @MakeNowJust)
+
+## 0.10.1 (2016-01-08)
+
+* Added `Int#popcount` (thanks @rmosolgo)
+* Added `@[Naked]` attribute for omitting a method's prelude
+* Check that abstract methods are implemented by subtypes
+* Some bug fixes
+
+## 0.10.0 (2015-12-23)
+
+* **(breaking change)** `def` arguments must always be enclosed in parentheses
+* **(breaking change)** A space is now required before and after def return type restriction
+* **(breaking change)** Renamed `Dir.working_dir` to `Dir.current`
+* **(breaking change)** Moved `HTML::Builder` to [its own shard](https://github.com/crystal-lang/html_builder)
+* **(breaking change)** `String#split` now always keeps all results (never drops trailing empty strings)
+* **(breaking change)** Removed `Array#buffer`, `StaticArray#buffer` and `Slice#buffer`. Use `to_unsafe` instead (so unsafe usages are easier to spot)
+* **(breaking change)** Removed `String#cstr`. Use `to_unsafe` instead (so unsafe usages are easier to spot)
+* Optimized Range#sum (thanks @MakeNowJust)
+* Allow forward declarations for lib external vars
+* Added `Int#to_s(base)` for `base = 62` (thanks @jhass)
+* `JSON.parse` now returns `JSON::Any`, which allows traversal of JSON objects with less casts
+* Added `OpenSSL::PKCS5` (thanks @benoist)
+* MemoryIO can now be created to read/write from a Slice(UInt8). In this mode MemoryIO can't be exapnded, and can optionally be written. And when creating a MemoryIO from a String, it's non-resizeable and read-only.
+* Added `Object#!~` (the opposite of `=~`)
+* `at_exit` now receives that exit status code in the block (thanks @MakeNowJust)
+* Allow using `Set` in JSON mappings (thanks @benoist)
+* Added `File.executable?`, `File.readable?` and `File.writeable?` (thanks @mverzilli)
+* `Array#sort_by` and `Array#sort_by!` now use a [Schwartzian transform](https://en.wikipedia.org/wiki/Schwartzian_transform) (thanks @radarek)
+* Added `Array#each_permutation`, `Array#each_combination` and `Array#each_repeated_combination` iterators
+* Added optional *random* argument to `Array#sample` and `Array#shuffle`
+* The `delegate` macro can now delegate multiple methods to an object (thanks @elthariel)
+* Added basic YAML generation (thanks @porras)
+
+## 0.9.1 (2015-10-30)
+
+* Docs search now finds nested entries (thanks @adlerhsieh)
+* Many corrections and changes to the formatter, for better consistency and less obtrusion.
+* Added `OpenSSL::Cipher` and `OpenSSL::Digest` (thanks @benoist)
+* Added `Char#+(String)` (thanks @hangyas)
+* Added `Hash#key` and `Hash#key?` (thanks @adlerhsieh)
+* Added `Time::Span#*` and `Time::Span#/` (thanks @jbaum98)
+* Added `Slice#reverse_each` (thanks @omninonsense)
+* Added docs for `Random` and `Tempfile` (thanks @adlerhsieh)
+* Fixed some bugs.
+
+## 0.9.0 (2015-10-16)
+
+* **(breaking change)** The `CGI` module's funcionality has been moved to `URI` and `HTTP::Params`
+* **(breaking change)** `IO#read()` is now `IO#gets_to_end`. Removed `IO#read(count)`, added `IO#skip(count)`
+* **(breaking change)** `json_mapping` is now `JSON.mapping`. `yaml_mapping` is now `YAML.mapping`
+* **(breaking change)** `StringIO` is now `MemoryIO`
+* Added `crystal tool format` that automatically formats your code
+* `protected` methods can now be invoked between types inside a same namespace
+* Removed `curses`, you can use `https://github.com/jreinert/ncurses-crystal`
+* `to_unsafe` and numeric conversions are now also automatically performed in C struct and union fields
+* Added `{% begin %} ... {% end %}` as an alternative to `{% if true %} ... {% end %}`
+* Added `~!` operator
+* Added debug metadata for char, float, bool and enums. Also for classes and structs (experimental)
+* `Dir.glob` now works well with recursive patterns like `**` (thanks @pgkos)
+* Added `read_timeout` and `connect_timeout` to `HTTP::Client` (thanks @benoist)
+* Added `Zlib` (thanks @datanoise and @bcardiff)
+* Added `HTTP::DeflateHandler` (thanks @bcardiff)
+* Added `ENV#fetch` (thanks @tristil)
+* `Hash#new` now accepts an initialize capacity argument
+* `HTTP::Request` provides access and mutation of `query`, `path` and `query_params` (thanks @waterlink)
+* Added `XML::Node#content=` and `#name=`
+* Allow passing handlers and a block to an `HTTP::Server` (thanks @RX14)
+* `crystal init` now tries to use your github username if available (thanks @jreinert)
+* Added `Hash#select`, `Hash#reject` and their bang variant, and `Hash#each_with_object` (thanks @devdazed)
+* Added `Hash#select(*keys)` and `Hash#reject(*keys)` and their bang variant (thanks @sdogruyol)
+* Added `Set#-`, `Set#^`, and `Set#subtract` (thanks @js-ojus)
+* Allow running specs without colors (thanks @rhysd)
+* Added `TypeNode#has_constant?` and `TypeNode#type_vars` in macros (thanks @jreinert)
+* Added `String#compare` that allows case insensitive comparisons
+* Added `File#truncate` (thanks @porras)
+* `CSV` is now a class for iterating rows, optionally with headers access
+* Allow setting multiple `before_request` callbacks to an `HTTP::Client`
+* Added `Dir.cd(&block)` (thanks @rhysd)
+* Added `Class#cast` (thanks @will)
+* Fixes and additions to WebSocket, like the possibility of streaming data (thanks @jreinert)
+* Added `SemanticVersion` class (thanks @technorama)
+* `loop` now yields a counter
+* Added `Array#[]=(index, count, value)` and `Array#[]=(range, value)`
+* Added argless `sleep`
+* `IO#write(slice)` now writes the full slice or raises on error
+* Added some docs for ECR, Markdown, Hash, File, Time, Time::Span, Colorize, String, SecureRandom, YAML (thanks @adlerhsieh, @chdorner, @vjdhama, @rmosolgo)
+* Many bug fixes
+
 ## 0.8.0 (2015-09-19)
 
 * **(breaking change)** Renamed a couple of types: `ChannelClosed` -> `Channel::ClosedError`,
@@ -91,7 +589,7 @@
 
 ## 0.7.6 (2015-08-13)
 
-* **(breaking change)** removed support for trailing `while`/`until` ([read this](https://github.com/manastech/crystal/wiki/FAQ#why-trailing-whileuntil-is-not-supported-unlike-ruby))
+* **(breaking change)** removed support for trailing `while`/`until` ([read this](https://github.com/crystal-lang/crystal/wiki/FAQ#why-trailing-whileuntil-is-not-supported-unlike-ruby))
 * **(breaking change)** Renamed `Enumerable#drop` to `Enumerable#skip`
 * **(breaking change)** Renamed `Time.at` to `Time.epoch`, and `Time#to_i` and `Time#to_f` to `Time#epoch` and `Time#epoch_f`
 * **(breaking change)** `inherited` macro now runs before a class' body
@@ -223,8 +721,8 @@
 
 ## 0.7.1 (2015-04-30)
 
-* Fixed [#597](https://github.com/manastech/crystal/issues/597).
-* Fixed [#599](https://github.com/manastech/crystal/issues/599).
+* Fixed [#597](https://github.com/crystal-lang/crystal/issues/597).
+* Fixed [#599](https://github.com/crystal-lang/crystal/issues/599).
 
 ## 0.7.0 (2015-04-30)
 
@@ -232,9 +730,9 @@
 * Correctly support the X86_64 and X86 ABIs. Now bindings to C APIs that pass and return structs works perfectly fine.
 * Added `crystal init` to quickly create a skeleton library or application (thanks @waterlink)
 * Added `--emit` flag to the compiler. Now you can easily see the generated LLVM IR, LLVM bitcode, assembly and object files.
-* Added `--no-color` flag to supress color output, useful for editor tools.
+* Added `--no-color` flag to suppress color output, useful for editor tools.
 * Added macro vars: `%var` and `%var{x, y}` create uniqely named variables inside macros.
-* Added [typed splats](https://github.com/manastech/crystal/issues/291).
+* Added [typed splats](https://github.com/crystal-lang/crystal/issues/291).
 * Added `Iterator` and many methods that return iterators, like `Array#each`, `Hash#each`, `Int#times`, `Int#step`, `String#each_char`, etc.
 * Added `sprintf` and improved `String#%` to support floats and float formatting.
 * Added more variants of `String#gsub`.
@@ -320,7 +818,7 @@
 
 * Added `Random` and `Random::MT19937` (Mersenne Twister) classes (thanks @rhysd).
 * Docs: removed automatic linking. To link to classes and methods surround with backticks.
-* Fixed [#328](https://github.com/manastech/crystal/issues/328): `!=` bug.
+* Fixed [#328](https://github.com/crystal-lang/crystal/issues/328): `!=` bug.
 
 ## 0.5.7 (2015-01-02)
 
@@ -331,10 +829,10 @@
 
 * Added a `crystal doc` command to automatically generate documentation for a project using [Markdown](http://daringfireball.net/projects/markdown/) syntax. The style is still ugly but it's quite functional. Now we only need to start documenting things :-)
 * Removed the old `@:` attribute syntax.
-* Fixed [#311](https://github.com/manastech/crystal/issues/311): Issues with invoking lib functions in other ways (thanks @scidom).
-* Fixed [#314](https://github.com/manastech/crystal/issues/314): NoReturn information is not lazy.
-* Fixed [#317](https://github.com/manastech/crystal/issues/317): Fixes in UTF-8 encoding/decoding (thanks @yous).
-* Fixed [#319](https://github.com/manastech/crystal/issues/319): Unexpected EOF (thanks @Exilor).
+* Fixed [#311](https://github.com/crystal-lang/crystal/issues/311): Issues with invoking lib functions in other ways (thanks @scidom).
+* Fixed [#314](https://github.com/crystal-lang/crystal/issues/314): NoReturn information is not lazy.
+* Fixed [#317](https://github.com/crystal-lang/crystal/issues/317): Fixes in UTF-8 encoding/decoding (thanks @yous).
+* Fixed [#319](https://github.com/crystal-lang/crystal/issues/319): Unexpected EOF (thanks @Exilor).
 * `{{yield}}` inside macros now preserve the yielded node location, leading to much better error messages.
 * Added `Float#nan?`, `Float#infinite?` and `Float#finite?`.
 * Many other bug fixes and improvements.
@@ -347,7 +845,7 @@
 ## 0.5.4 (2014-12-04)
 
 * **(breaking change)** `require "foo"` always looks up in `CRYSTAL_PATH`. `require "./foo"` looks up relative to the requiring file.
-* **(breaking change)** Renamed `Json` to `JSON`, `Xml` to `XML` and `Yaml` to `YAML` to follow [a convention](https://github.com/manastech/crystal/issues/279).
+* **(breaking change)** Renamed `Json` to `JSON`, `Xml` to `XML` and `Yaml` to `YAML` to follow [a convention](https://github.com/crystal-lang/crystal/issues/279).
 * **(breaking change)** To use HTTP types do, for example, `require "http/client"` instead of the old `require "net/http"`.
 * Added `alias_method` macro (thanks @Exilor and @jtomschroeder).
 * Added some `Complex` number methods and many math methods, refactors and specs (thanks @scidom).
@@ -382,7 +880,7 @@
 * Added preliminar `crystal deps` command.
 * `__FILE__`, `__DIR__` and `__LINE__`, when used as def default arguments, resolve to the caller location (similar to [D](http://dlang.org/traits.html#specialkeywords) and [Swift](https://developer.apple.com/swift/blog/?id=15))
 * Allow `as` to determine a type even if the casted value doesn't have a type yet.
-* Added `is_a?` in macros. The check is against an [AST node](https://github.com/manastech/crystal/blob/master/src/compiler/crystal/syntax/ast.cr) name. For example `node.is_a?(HashLiteral)`.
+* Added `is_a?` in macros. The check is against an [AST node](https://github.com/crystal-lang/crystal/blob/master/src/compiler/crystal/syntax/ast.cr) name. For example `node.is_a?(HashLiteral)`.
 * Added `emit_null` property to `json_mapping`.
 * Added `converter` property to `json_mapping`.
 * Added `pp` in macros.
@@ -409,28 +907,28 @@
 
 ## 0.5.1 (2014-10-16)
 
-* Added [json_mapping](https://github.com/manastech/crystal/blob/master/spec/std/json/mapping_spec.cr) macro.
-* Added [Signal](https://github.com/manastech/crystal/blob/master/src/signal.cr) module.
-* Added [Tempfile](https://github.com/manastech/crystal/blob/master/src/tempfile.cr) class.
-* Enhanced [HTTP::Client](https://github.com/manastech/crystal/blob/master/src/net/http/client/client.cr).
-* Added [OAuth::Consumer](https://github.com/manastech/crystal/blob/master/libs/oauth/consumer.cr).
-* Added [OAuth2::Client](https://github.com/manastech/crystal/blob/master/libs/oauth2/client.cr).
-* Added [OpenSSL::HMAC](https://github.com/manastech/crystal/blob/master/libs/openssl/hmac.cr).
-* Added [SecureRandom](https://github.com/manastech/crystal/blob/master/src/secure_random.cr).
+* Added [json_mapping](https://github.com/crystal-lang/crystal/blob/master/spec/std/json/mapping_spec.cr) macro.
+* Added [Signal](https://github.com/crystal-lang/crystal/blob/master/src/signal.cr) module.
+* Added [Tempfile](https://github.com/crystal-lang/crystal/blob/master/src/tempfile.cr) class.
+* Enhanced [HTTP::Client](https://github.com/crystal-lang/crystal/blob/master/src/net/http/client/client.cr).
+* Added [OAuth::Consumer](https://github.com/crystal-lang/crystal/blob/master/libs/oauth/consumer.cr).
+* Added [OAuth2::Client](https://github.com/crystal-lang/crystal/blob/master/libs/oauth2/client.cr).
+* Added [OpenSSL::HMAC](https://github.com/crystal-lang/crystal/blob/master/libs/openssl/hmac.cr).
+* Added [SecureRandom](https://github.com/crystal-lang/crystal/blob/master/src/secure_random.cr).
 * New syntax for array/hash-like classes. For example: `Set {1, 2, 3}` and `HTTP::Headers {"content-type": "text/plain"}`. These just create the type and use `<<` or `[]=`.
 * Optimized Json parsing performance.
-* Added a [CSV builder](https://github.com/manastech/crystal/blob/master/src/csv.cr#L13).
-* XML reader can [parse from an IO](https://github.com/manastech/crystal/blob/master/src/xml/reader.cr#L10).
+* Added a [CSV builder](https://github.com/crystal-lang/crystal/blob/master/src/csv.cr#L13).
+* XML reader can [parse from an IO](https://github.com/crystal-lang/crystal/blob/master/src/xml/reader.cr#L10).
 * Added `Dir::glob` and `Dir::Entries` (thanks @jhass)
 * Allow `ensure` as an expression suffix.
-* Fixed [#219](https://github.com/manastech/crystal/issues/219): Proc type is not inferred when passing to library fun and the return type doesn't match.
-* Fixed [#224](https://github.com/manastech/crystal/issues/224): Class#new doesn't pass a block.
-* Fixed [#225](https://github.com/manastech/crystal/issues/225): ICE when comparing void to something.
-* Fixed [#227](https://github.com/manastech/crystal/issues/227): Nested captured block looses scope and crashes compiler.
-* Fixed [#228](https://github.com/manastech/crystal/issues/228): Macro expansion doesn't retain symbol escaping as needed.
-* Fixed [#229](https://github.com/manastech/crystal/issues/229): Can't change block context if defined within module context.
-* Fixed [#230](https://github.com/manastech/crystal/issues/230): Type interference breaks equality operator.
-* Fixed [#233](https://github.com/manastech/crystal/issues/233): Incorrect `no block given` message with new.
+* Fixed [#219](https://github.com/crystal-lang/crystal/issues/219): Proc type is not inferred when passing to library fun and the return type doesn't match.
+* Fixed [#224](https://github.com/crystal-lang/crystal/issues/224): Class#new doesn't pass a block.
+* Fixed [#225](https://github.com/crystal-lang/crystal/issues/225): ICE when comparing void to something.
+* Fixed [#227](https://github.com/crystal-lang/crystal/issues/227): Nested captured block looses scope and crashes compiler.
+* Fixed [#228](https://github.com/crystal-lang/crystal/issues/228): Macro expansion doesn't retain symbol escaping as needed.
+* Fixed [#229](https://github.com/crystal-lang/crystal/issues/229): Can't change block context if defined within module context.
+* Fixed [#230](https://github.com/crystal-lang/crystal/issues/230): Type interference breaks equality operator.
+* Fixed [#233](https://github.com/crystal-lang/crystal/issues/233): Incorrect `no block given` message with new.
 * Other bug fixes.
 
 ## 0.5.0 (2014-09-24)
@@ -452,7 +950,7 @@
 
 ## 0.4.4 (2014-09-17)
 
-* Fixed [#193](https://github.com/manastech/crystal/issues/193): allow initializing an enum value with another's one.
+* Fixed [#193](https://github.com/crystal-lang/crystal/issues/193): allow initializing an enum value with another's one.
 * The `record` macro is now variadic, so instead of `record Vec3, [x, y, z]` write `record Vec3, x, y, z`.
 * The `def_equals`, `def_hash` and `def_equals_and_hash` macros are now variadic.
 * The `property`, `getter` and `setter` macros are now variadic.
@@ -485,7 +983,7 @@
 
 ## 0.4.2 (2014-08-13)
 
-* Fixed [#187](https://github.com/manastech/crystal/issues/185): mixing `yield` and `block.call` crashes the compiler.
+* Fixed [#187](https://github.com/crystal-lang/crystal/issues/185): mixing `yield` and `block.call` crashes the compiler.
 * Added `\u` unicode escape sequences inside strings and chars (similar to Ruby). `\x` will be deprecated as it can generate strings with invalid UTF-8 byte sequences.
 * Added `String#chars`.
 * Fixed: splats weren't working in `initialize`.
@@ -494,7 +992,7 @@
 
 ## 0.4.1 (2014-08-09)
 
-* Fixed [#185](https://github.com/manastech/crystal/issues/185): `-e` flag stopped working.
+* Fixed [#185](https://github.com/crystal-lang/crystal/issues/185): `-e` flag stopped working.
 * Added a `@length` compile-time variable available inside tuples that allows to do loop unrolling.
 * Some bug fixes.
 
@@ -518,11 +1016,11 @@
 * Allow iterating a range in macros with `for`.
 * Use cpu cycle counter to initialize random.
 * `method_missing` now works in generic types.
-* Fixed [#154](https://github.com/manastech/crystal/issues/154): bug, constants are initialized before global variables.
-* Fixed [#168](https://github.com/manastech/crystal/issues/168): incorrect type inference of instance variables if not assigned in superclass.
-* Fixed [#169](https://github.com/manastech/crystal/issues/169): `responds_to?` wasn't working with generic types.
-* Fixed [#171](https://github.com/manastech/crystal/issues/171): ensure blocks are not executed if the rescue block returns from a def.
-* Fixed [#175](https://github.com/manastech/crystal/issues/175): invalid code generated when using with/yield with structs.
+* Fixed [#154](https://github.com/crystal-lang/crystal/issues/154): bug, constants are initialized before global variables.
+* Fixed [#168](https://github.com/crystal-lang/crystal/issues/168): incorrect type inference of instance variables if not assigned in superclass.
+* Fixed [#169](https://github.com/crystal-lang/crystal/issues/169): `responds_to?` wasn't working with generic types.
+* Fixed [#171](https://github.com/crystal-lang/crystal/issues/171): ensure blocks are not executed if the rescue block returns from a def.
+* Fixed [#175](https://github.com/crystal-lang/crystal/issues/175): invalid code generated when using with/yield with structs.
 * Fixed some parser issues and other small issues.
 * Allow forward struct/union declarations in libs.
 * Added `String#replace(Regex, String)`
@@ -530,7 +1028,7 @@
 
 ## 0.3.4 (2014-07-21)
 
-* Fixed [#165](https://github.com/manastech/crystal/issues/165): restrictions with generic types didn't work for hierarchy types.
+* Fixed [#165](https://github.com/crystal-lang/crystal/issues/165): restrictions with generic types didn't work for hierarchy types.
 * Allow using a single underscore in restrictions, useful for matching against an n-tuple or an n-function where you don't care about the types (e.g.: `def foo(x : {_, _})`.
 * Added a `generate_hash` macro that generates a `hash` methods based on some AST nodes.
 * Added very basic `previous_def`: similar to `super`, but uses the previous definition of a method. Useful to decorate existing methods (similar to `alias_method_chain`). For now the method's type restrictions must match for a previous definition to be found.
@@ -544,7 +1042,7 @@
 ## 0.3.3 (2014-07-14)
 
 * Allow implicit conversion to C types by defining a `to_unsafe` method. This removed the hardcoded rule for converting a `String` to `UInt8*` and also allows passing an `Array(T)` to an argument expecting `Pointer(T)`.
-* Fixed `.is_a?(Class)` not working ([#162](https://github.com/manastech/crystal/issues/162))
+* Fixed `.is_a?(Class)` not working ([#162](https://github.com/crystal-lang/crystal/issues/162))
 * Attributes are now associated to AST nodes in the semantic pass, not during parsing. This allows macros to generate attributes that will be attached to subsequent expressions.
 * **(breaking change)** Make ENV#[] raise on missing key, and added ENV#[]?
 * **(breaking change)** Macro defs are now written like `macro def name(args) : ReturnType` instead of `def name(args) : ReturnType`, which was a bit confusing.
@@ -570,7 +1068,7 @@
 * Added a `Base64` module (thanks @kostya)
 * Allow default arguments in macros
 * Allow invoking `new` on a function type. For example: `alias F = Int32 -> Int32; f = F.new { |x| x + 1 }; f.call(2) #=> 3`.
-* Allow ommiting function argument types when invoking C functions that accept functions as arguments.
+* Allow omitting function argument types when invoking C functions that accept functions as arguments.
 * Renamed `@name` to `@class_name` inside macros. `@name` will be deprecated in the next version.
 * Added IO#read_fully
 * Macro hooks: `inherited`, `included` and `extended`
@@ -629,7 +1127,7 @@
 
     Invoking `id` on any other kind of node has no effect on the pasted result.
 * Allow escaping curly braces inside macros with `\{`. This allows defining macros that, when expanded, can contain other macro expressions.
-* Added a special comment-like pragma to change the lexer's filename, line number and colum number.
+* Added a special comment-like pragma to change the lexer's filename, line number and column number.
 
     ```ruby
     # foo.cr

@@ -1,4 +1,5 @@
 require "spec"
+require "big_int"
 
 private def to_s_with_io(num)
   String.build { |str| num.to_s(str) }
@@ -10,15 +11,45 @@ end
 
 describe "Int" do
   describe "**" do
-    assert { (2 ** 2).should eq(4) }
-    assert { (2 ** 2.5_f32).should eq(5.656854249492381) }
-    assert { (2 ** 2.5).should eq(5.656854249492381) }
+    it "with positive Int32" do
+      x = 2 ** 2
+      x.should eq(4)
+      x.should be_a(Int32)
+
+      x = 2 ** 0
+      x.should eq(1)
+      x.should be_a(Int32)
+    end
+
+    it "with positive UInt8" do
+      x = 2_u8 ** 2
+      x.should eq(4)
+      x.should be_a(UInt8)
+    end
+
+    it "raises with negative exponent" do
+      expect_raises(ArgumentError, "cannot raise an integer to a negative integer power, use floats for that") do
+        2 ** -1
+      end
+    end
+
+    it "should work with large integers" do
+      x = 51_i64 ** 11
+      x.should eq(6071163615208263051_i64)
+      x.should be_a(Int64)
+    end
+
+    describe "with float" do
+      assert { (2 ** 2.0).should be_close(4, 0.0001) }
+      assert { (2 ** 2.5_f32).should be_close(5.656854249492381, 0.0001) }
+      assert { (2 ** 2.5).should be_close(5.656854249492381, 0.0001) }
+    end
   end
 
   describe "#===(:Char)" do
-    assert { (99 === 'c').should     be_true }
-    assert { (99_u8 === 'c').should  be_true }
-    assert { (99 === 'z').should     be_false }
+    assert { (99 === 'c').should be_true }
+    assert { (99_u8 === 'c').should be_true }
+    assert { (99 === 'z').should be_false }
     assert { (37202 === '酒').should be_true }
   end
 
@@ -93,6 +124,15 @@ describe "Int" do
     assert { 0.to_s(16).should eq("0") }
     assert { 1.to_s(2).should eq("1") }
     assert { 1.to_s(16).should eq("1") }
+    assert { 0.to_s(62).should eq("0") }
+    assert { 1.to_s(62).should eq("1") }
+    assert { 10.to_s(62).should eq("a") }
+    assert { 35.to_s(62).should eq("z") }
+    assert { 36.to_s(62).should eq("A") }
+    assert { 61.to_s(62).should eq("Z") }
+    assert { 62.to_s(62).should eq("10") }
+    assert { 97.to_s(62).should eq("1z") }
+    assert { 3843.to_s(62).should eq("ZZ") }
 
     it "raises on base 1" do
       expect_raises { 123.to_s(1) }
@@ -100,6 +140,10 @@ describe "Int" do
 
     it "raises on base 37" do
       expect_raises { 123.to_s(37) }
+    end
+
+    it "raises on base 62 with upcase" do
+      expect_raises { 123.to_s(62, upcase: true) }
     end
 
     assert { to_s_with_io(12, 2).should eq("1100") }
@@ -117,6 +161,15 @@ describe "Int" do
     assert { to_s_with_io(0, 16).should eq("0") }
     assert { to_s_with_io(1, 2).should eq("1") }
     assert { to_s_with_io(1, 16).should eq("1") }
+    assert { to_s_with_io(0, 62).should eq("0") }
+    assert { to_s_with_io(1, 62).should eq("1") }
+    assert { to_s_with_io(10, 62).should eq("a") }
+    assert { to_s_with_io(35, 62).should eq("z") }
+    assert { to_s_with_io(36, 62).should eq("A") }
+    assert { to_s_with_io(61, 62).should eq("Z") }
+    assert { to_s_with_io(62, 62).should eq("10") }
+    assert { to_s_with_io(97, 62).should eq("1z") }
+    assert { to_s_with_io(3843, 62).should eq("ZZ") }
 
     it "raises on base 1 with io" do
       expect_raises { to_s_with_io(123, 1) }
@@ -124,6 +177,10 @@ describe "Int" do
 
     it "raises on base 37 with io" do
       expect_raises { to_s_with_io(123, 37) }
+    end
+
+    it "raises on base 62 with upcase with io" do
+      expect_raises { to_s_with_io(12, 62, upcase: true) }
     end
   end
 
@@ -271,9 +328,47 @@ describe "Int" do
     UInt64.new(1).should eq(1)
   end
 
+  it "divides negative numbers" do
+    (7 / 2).should eq(3)
+    (-7 / 2).should eq(-4)
+    (7 / -2).should eq(-4)
+    (-7 / -2).should eq(3)
+
+    (6 / 2).should eq(3)
+    (-6 / 2).should eq(-3)
+    (6 / -2).should eq(-3)
+    (-6 / -2).should eq(3)
+  end
+
+  it "tdivs" do
+    5.tdiv(3).should eq(1)
+    -5.tdiv(3).should eq(-1)
+    5.tdiv(-3).should eq(-1)
+    -5.tdiv(-3).should eq(1)
+  end
+
+  it "holds true that x == q*y + r" do
+    [5, -5, 6, -6, 10, -10].each do |x|
+      [3, -3].each do |y|
+        q = x / y
+        r = x % y
+        (q*y + r).should eq(x)
+      end
+    end
+  end
+
   it "raises when divides by zero" do
     expect_raises(DivisionByZero) { 1 / 0 }
     (4 / 2).should eq(2)
+  end
+
+  it "raises when divides Int::MIN by -1" do
+    expect_raises(ArgumentError) { Int8::MIN / -1 }
+    expect_raises(ArgumentError) { Int16::MIN / -1 }
+    expect_raises(ArgumentError) { Int32::MIN / -1 }
+    expect_raises(ArgumentError) { Int64::MIN / -1 }
+
+    (UInt8::MIN / -1).should eq(0)
   end
 
   it "raises when mods by zero" do
@@ -339,5 +434,64 @@ describe "Int" do
 
     iter.rewind
     iter.next.should eq(1)
+  end
+
+  describe "#popcount" do
+    assert { 5_i8.popcount.should eq(2) }
+    assert { 127_i8.popcount.should eq(7) }
+    assert { -1_i8.popcount.should eq(8) }
+    assert { -128_i8.popcount.should eq(1) }
+
+    assert { 0_u8.popcount.should eq(0) }
+    assert { 255_u8.popcount.should eq(8) }
+
+    assert { 5_i16.popcount.should eq(2) }
+    assert { -6_i16.popcount.should eq(14) }
+    assert { 65535_u16.popcount.should eq(16) }
+
+    assert { 0_i32.popcount.should eq(0) }
+    assert { 2147483647_i32.popcount.should eq(31) }
+    assert { 4294967295_u32.popcount.should eq(32) }
+
+    assert { 5_i64.popcount.should eq(2) }
+    assert { 9223372036854775807_i64.popcount.should eq(63) }
+    assert { 18446744073709551615_u64.popcount.should eq(64) }
+  end
+
+  it "compares signed vs. unsigned integers" do
+    signed_ints = [Int8::MAX, Int16::MAX, Int32::MAX, Int64::MAX, Int8::MIN, Int16::MIN, Int32::MIN, Int64::MIN, 0_i8, 0_i16, 0_i32, 0_i64]
+    unsigned_ints = [UInt8::MAX, UInt16::MAX, UInt32::MAX, UInt64::MAX, 0_u8, 0_u16, 0_u32, 0_u64]
+
+    big_signed_ints = signed_ints.map &.to_big_i
+    big_unsigned_ints = unsigned_ints.map &.to_big_i
+
+    signed_ints.zip(big_signed_ints) do |si, bsi|
+      unsigned_ints.zip(big_unsigned_ints) do |ui, bui|
+        {% for op in %w(< <= > >=).map(&.id) %}
+          if (si {{op}} ui) != (bsi {{op}} bui)
+            fail "comparison of #{si} {{op}} #{ui} (#{si.class} {{op}} #{ui.class}) gave incorrect result"
+          end
+        {% end %}
+      end
+    end
+  end
+
+  it "clones" do
+    [1_u8, 2_u16, 3_u32, 4_u64, 5_i8, 6_i16, 7_i32, 8_i64].each do |value|
+      value.clone.should eq(value)
+    end
+  end
+
+  it "#chr" do
+    65.chr.should eq('A')
+
+    expect_raises(ArgumentError, "#{0x10ffff + 1} out of char range") do
+      (0x10ffff + 1).chr
+    end
+  end
+
+  it "#unsafe_chr" do
+    65.unsafe_chr.should eq('A')
+    (0x10ffff + 1).unsafe_chr.ord.should eq(0x10ffff + 1)
   end
 end

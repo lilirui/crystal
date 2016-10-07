@@ -2,10 +2,42 @@ require "./config"
 
 module Crystal
   struct CrystalPath
-    DEFAULT_PATH = ENV["CRYSTAL_PATH"]? || Crystal::Config::PATH
+    def self.default_path
+      ENV["CRYSTAL_PATH"]? || Crystal::Config.path
+    end
 
-    def initialize(path = DEFAULT_PATH)
-      @crystal_path = path.split ':'
+    @crystal_path : Array(String)
+
+    def initialize(path = CrystalPath.default_path, target_triple = LLVM.default_target_triple)
+      @crystal_path = path.split(':').reject &.empty?
+      add_target_path(target_triple)
+    end
+
+    private def add_target_path(target_triple = LLVM.default_target_triple)
+      triple = target_triple.split('-')
+      triple.delete(triple[1]) if triple.size == 4 # skip vendor
+
+      if %w(i386 i486 i586).includes?(triple[0])
+        triple[0] = "i686"
+      end
+
+      target = if triple.any?(&.includes?("macosx"))
+                 {triple[0], "macosx", "darwin"}.join('-')
+               elsif triple.any?(&.includes?("freebsd"))
+                 {triple[0], triple[1], "freebsd"}.join('-')
+               elsif triple.any?(&.includes?("openbsd"))
+                 {triple[0], triple[1], "openbsd"}.join('-')
+               else
+                 triple.join('-')
+               end
+
+      @crystal_path.each do |path|
+        _path = File.join(path, "lib_c", target)
+        if Dir.exists?(_path)
+          @crystal_path << _path unless @crystal_path.includes?(_path)
+          return
+        end
+      end
     end
 
     def find(filename, relative_to = nil)
@@ -24,7 +56,7 @@ module Crystal
         # Check if it's a wildcard.
         if filename.ends_with?("/*") || (recursive = filename.ends_with?("/**"))
           filename_dir_index = filename.rindex('/').not_nil!
-          filename_dir = filename[0 .. filename_dir_index]
+          filename_dir = filename[0..filename_dir_index]
           relative_dir = "#{relative_to}/#{filename_dir}"
           if File.exists?(relative_dir)
             files = [] of String
@@ -40,14 +72,38 @@ module Crystal
             return make_relative_unless_absolute relative_filename_cr
           end
 
-          # If it's a directory, we check if a .cr file with a name the same as the
-          # directory basename exists, and we require that one.
-          if Dir.exists?(relative_filename)
+          if slash_index = filename.index('/')
+            # If it's "foo/bar/baz", check if "foo/src/bar/baz.cr" exists (for a shard, non-namespaced structure)
+            before_slash, after_slash = filename.split('/', 2)
+            absolute_filename = make_relative_unless_absolute("#{relative_to}/#{before_slash}/src/#{after_slash}.cr")
+            return absolute_filename if File.exists?(absolute_filename)
+
+            # Then check if "foo/src/foo/bar/baz.cr" exists (for a shard, namespaced structure)
+            absolute_filename = make_relative_unless_absolute("#{relative_to}/#{before_slash}/src/#{before_slash}/#{after_slash}.cr")
+            return absolute_filename if File.exists?(absolute_filename)
+
+            # If it's "foo/bar/baz", check if "foo/bar/baz/baz.cr" exists (std, nested)
             basename = File.basename(relative_filename)
+            absolute_filename = make_relative_unless_absolute("#{relative_to}/#{filename}/#{basename}.cr")
+            return absolute_filename if File.exists?(absolute_filename)
+
+            # If it's "foo/bar/baz", check if "foo/src/foo/bar/baz/baz.cr" exists (shard, non-namespaced, nested)
+            absolute_filename = make_relative_unless_absolute("#{relative_to}/#{before_slash}/src/#{after_slash}/#{after_slash}.cr")
+            return absolute_filename if File.exists?(absolute_filename)
+
+            # If it's "foo/bar/baz", check if "foo/src/foo/bar/baz/baz.cr" exists (shard, namespaced, nested)
+            absolute_filename = make_relative_unless_absolute("#{relative_to}/#{before_slash}/src/#{before_slash}/#{after_slash}/#{after_slash}.cr")
+            return absolute_filename if File.exists?(absolute_filename)
+          else
+            basename = File.basename(relative_filename)
+
+            # If it's "foo", check if "foo/foo.cr" exists (for the std, nested)
             absolute_filename = make_relative_unless_absolute("#{relative_filename}/#{basename}.cr")
-            if File.exists?(absolute_filename)
-              return absolute_filename
-            end
+            return absolute_filename if File.exists?(absolute_filename)
+
+            # If it's "foo", check if "foo/src/foo.cr" exists (for a shard)
+            absolute_filename = make_relative_unless_absolute("#{relative_filename}/src/#{basename}.cr")
+            return absolute_filename if File.exists?(absolute_filename)
           end
         end
       end
@@ -90,7 +146,7 @@ module Crystal
     end
 
     private def make_relative_unless_absolute(filename)
-      filename = "#{Dir.working_directory}/#{filename}" unless filename.starts_with?('/')
+      filename = "#{Dir.current}/#{filename}" unless filename.starts_with?('/')
       File.expand_path(filename)
     end
 

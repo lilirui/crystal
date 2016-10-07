@@ -6,8 +6,8 @@
 #
 # ```
 # str = "Hello world"
-# str.index 'e' #=> 1
-# str.index 'a' #=> nil
+# str.index 'e' # => 1
+# str.index 'a' # => nil
 # ```
 #
 # In the above example, trying to invoke a method on the returned value will
@@ -67,16 +67,6 @@ struct Nil
     false
   end
 
-  # Returns true.
-  def nil?
-    true
-  end
-
-  # Returns true.
-  def !
-    true
-  end
-
   # Returns zero.
   def hash
     0
@@ -110,5 +100,9 @@ struct Nil
   # Raises an exception. See `Object#not_nil!`.
   def not_nil!
     raise "Nil assertion failed"
+  end
+
+  def clone
+    self
   end
 end

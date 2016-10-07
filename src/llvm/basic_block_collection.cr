@@ -1,5 +1,5 @@
 struct LLVM::BasicBlockCollection
-  def initialize(@function)
+  def initialize(@function : Function)
   end
 
   def append(name = "")

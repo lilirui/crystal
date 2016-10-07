@@ -4,16 +4,23 @@ lib LibCrystalMain
 end
 
 macro redefine_main(name = main)
+  # :nodoc:
   fun main = {{name}}(argc : Int32, argv : UInt8**) : Int32
-    GC.init
-    {{yield LibCrystalMain.__crystal_main(argc, argv)}}
-    0
-  rescue ex
-    ex.inspect_with_backtrace STDERR
-    1
-  ensure
-    AtExitHandlers.run
+    %ex = nil
+    %status = begin
+      GC.init
+      {{yield LibCrystalMain.__crystal_main(argc, argv)}}
+      0
+    rescue ex
+      %ex = ex
+      1
+    end
+
+    AtExitHandlers.run %status
+    %ex.inspect_with_backtrace STDERR if %ex
     STDOUT.flush
+    STDERR.flush
+    %status
   end
 end
 

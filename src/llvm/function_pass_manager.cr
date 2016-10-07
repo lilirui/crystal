@@ -1,5 +1,5 @@
 class LLVM::FunctionPassManager
-  def initialize(@unwrap)
+  def initialize(@unwrap : LibLLVM::PassManagerRef)
   end
 
   def add_target_data(target_data)
@@ -36,6 +36,8 @@ class LLVM::FunctionPassManager
   end
 
   struct Runner
+    @fpm : FunctionPassManager
+
     def initialize(@fpm)
     end
 

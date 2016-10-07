@@ -56,14 +56,36 @@ describe "Set" do
   end
 
   describe "dup" do
-    it "creates an independant copy" do
-      set1 = Set{1, 2, 3}
+    it "creates a dup" do
+      set1 = Set{[1, 2]}
       set2 = set1.dup
 
-      set1 << 4
-      set2 << 5
+      set1.should eq(set2)
+      set1.should_not be(set2)
 
-      set2.should eq(Set{1, 2, 3, 5})
+      set1.to_a.first.should be(set2.to_a.first)
+
+      set1 << [3]
+      set2 << [4]
+
+      set2.should eq(Set{[1, 2], [4]})
+    end
+  end
+
+  describe "clone" do
+    it "creates a clone" do
+      set1 = Set{[1, 2]}
+      set2 = set1.clone
+
+      set1.should eq(set2)
+      set1.should_not be(set2)
+
+      set1.to_a.first.should_not be(set2.to_a.first)
+
+      set1 << [3]
+      set2 << [4]
+
+      set2.should eq(Set{[1, 2], [4]})
     end
   end
 
@@ -80,15 +102,15 @@ describe "Set" do
   end
 
   describe "merge" do
-    it "adds all the other elements"do
+    it "adds all the other elements" do
       set = Set{1, 4, 8}
-      set.merge [1,9,10]
-      set.should eq(Set{1,4,8,9,10})
+      set.merge [1, 9, 10]
+      set.should eq(Set{1, 4, 8, 9, 10})
     end
 
     it "returns self" do
       set = Set{1, 4, 8}
-      set.merge([1,9,10]).should eq(Set{1,4,8,9,10})
+      set.merge([1, 9, 10]).should eq(Set{1, 4, 8, 9, 10})
     end
   end
 
@@ -268,8 +290,8 @@ describe "Set" do
   end
 
   it "compares hashes of sets" do
-    h1 = { Set{1, 2, 3} => 1 }
-    h2 = { Set{1, 2, 3} => 1 }
+    h1 = {Set{1, 2, 3} => 1}
+    h2 = {Set{1, 2, 3} => 1}
     h1.should eq(h2)
   end
 

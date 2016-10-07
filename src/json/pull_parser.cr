@@ -1,10 +1,11 @@
 # This class allows you to consume JSON on demand, token by token.
 class JSON::PullParser
-  getter kind
-  getter bool_value
-  getter int_value
-  getter float_value
-  getter string_value
+  getter kind : Symbol
+  getter bool_value : Bool
+  getter int_value : Int64
+  getter float_value : Float64
+  getter string_value : String
+  getter raw_value : String
 
   def initialize(input)
     @lexer = Lexer.new input
@@ -13,6 +14,7 @@ class JSON::PullParser
     @int_value = 0_i64
     @float_value = 0.0
     @string_value = ""
+    @raw_value = ""
     @object_stack = [] of Symbol
     @skip_count = 0
 
@@ -29,9 +31,11 @@ class JSON::PullParser
     when :INT
       @kind = :int
       @int_value = token.int_value
+      @raw_value = token.raw_value
     when :FLOAT
       @kind = :float
       @float_value = token.float_value
+      @raw_value = token.raw_value
     when :STRING
       @kind = :string
       @string_value = token.string_value
@@ -112,6 +116,70 @@ class JSON::PullParser
     end
   end
 
+  def read_raw
+    case @kind
+    when :null
+      read_next
+      "null"
+    when :bool
+      @bool_value.to_s.tap { read_next }
+    when :int, :float
+      @raw_value.tap { read_next }
+    when :string
+      @string_value.to_json.tap { read_next }
+    when :begin_array
+      String.build { |io| read_raw(io) }
+    when :begin_object
+      String.build { |io| read_raw(io) }
+    else
+      unexpected_token
+    end
+  end
+
+  def read_raw(io)
+    case @kind
+    when :null
+      read_next
+      io << "null"
+    when :bool
+      io << @bool_value
+      read_next
+    when :int, :float
+      io << @raw_value
+      read_next
+    when :string
+      @string_value.to_json(io)
+      read_next
+    when :begin_array
+      io << "["
+      read_begin_array
+      first = true
+      while kind != :end_array
+        io << "," unless first
+        read_raw(io)
+        first = false
+      end
+      io << "]"
+      read_end_array
+    when :begin_object
+      io << "{"
+      read_begin_object
+      first = true
+      while kind != :end_object
+        io << "," unless first
+        @string_value.to_json(io)
+        read_object_key
+        io << ":"
+        read_raw(io)
+        first = false
+      end
+      io << "}"
+      read_end_object
+    else
+      unexpected_token
+    end
+  end
+
   def read_string
     expect_kind :string
     @string_value.tap { read_next }
@@ -158,11 +226,12 @@ class JSON::PullParser
 
   def on_key!(key)
     found = false
+    value = uninitialized typeof(yield)
 
     read_object do |some_key|
       if some_key == key
         found = true
-        yield
+        value = yield
       else
         skip
       end
@@ -171,11 +240,63 @@ class JSON::PullParser
     unless found
       raise "json key not found: #{key}"
     end
+
+    value
   end
 
   def read_next
     read_next_internal
     @kind
+  end
+
+  def read?(klass : Bool.class)
+    read_bool if kind == :bool
+  end
+
+  def read?(klass : Int8.class)
+    read_int.to_i8 if kind == :int
+  end
+
+  def read?(klass : Int16.class)
+    read_int.to_i16 if kind == :int
+  end
+
+  def read?(klass : Int32.class)
+    read_int.to_i32 if kind == :int
+  end
+
+  def read?(klass : Int64.class)
+    read_int.to_i64 if kind == :int
+  end
+
+  def read?(klass : UInt8.class)
+    read_int.to_u8 if kind == :int
+  end
+
+  def read?(klass : UInt16.class)
+    read_int.to_u16 if kind == :int
+  end
+
+  def read?(klass : UInt32.class)
+    read_int.to_u32 if kind == :int
+  end
+
+  def read?(klass : UInt64.class)
+    read_int.to_u64 if kind == :int
+  end
+
+  def read?(klass : Float32.class)
+    return read_int.to_f32 if kind == :int
+    return read_float.to_f32 if kind == :float
+  end
+
+  def read?(klass : Float64.class)
+    return read_int.to_f64 if kind == :int
+    return read_float.to_f64 if kind == :float
+  end
+
+  def read?(klass : String.class)
+    read_string if kind == :string
   end
 
   private def read_next_internal
@@ -200,11 +321,13 @@ class JSON::PullParser
       when :INT
         @kind = :int
         @int_value = token.int_value
+        @raw_value = token.raw_value
         next_token_after_value
         return
       when :FLOAT
         @kind = :float
         @float_value = token.float_value
+        @raw_value = token.raw_value
         next_token_after_value
         return
       when :STRING
@@ -332,9 +455,9 @@ class JSON::PullParser
     @object_stack.last?
   end
 
-  private delegate token, @lexer
-  private delegate next_token, @lexer
-  private delegate next_token_expect_object_key, @lexer
+  private delegate token, to: @lexer
+  private delegate next_token, to: @lexer
+  private delegate next_token_expect_object_key, to: @lexer
 
   private def next_token_after_value
     case next_token.type

@@ -5,10 +5,10 @@ struct Time::Format
   struct Formatter
     include Pattern
 
-    getter io
-    getter time
+    getter io : IO
+    getter time : Time
 
-    def initialize(@time, @io)
+    def initialize(@time : Time, @io : IO)
     end
 
     def year
@@ -127,6 +127,10 @@ struct Time::Format
 
     def day_of_week_sunday_0_6
       io << time.day_of_week.value
+    end
+
+    def epoch
+      io << time.epoch
     end
 
     def time_zone

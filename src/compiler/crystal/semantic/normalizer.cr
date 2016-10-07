@@ -5,52 +5,33 @@ require "../syntax/transformer"
 module Crystal
   class Program
     def normalize(node, inside_exp = false)
-      normalizer = Normalizer.new(self)
-      normalizer.exp_nest = 1 if inside_exp
-      node = normalizer.normalize(node)
-      puts node if ENV["SSA"]? == "1"
-      node
+      node.transform Normalizer.new(self)
     end
   end
 
   class Normalizer < Transformer
-    getter program
-    property exp_nest
+    getter program : Program
+
+    @dead_code : Bool
+    @current_def : Def?
 
     def initialize(@program)
       @dead_code = false
       @current_def = nil
-      @exp_nest = 0
-    end
-
-    def normalize(node)
-      node.transform(self)
     end
 
     def before_transform(node)
       @dead_code = false
-      @exp_nest += 1 if nesting_exp?(node)
     end
 
     def after_transform(node)
-      @exp_nest -= 1 if nesting_exp?(node)
-
       case node
       when Return, Break, Next
         @dead_code = true
-      when If, Unless, Expressions, Block
-       # Skip
+      when If, Unless, Expressions, Block, Assign
+        # Skip
       else
         @dead_code = false
-      end
-    end
-
-    def nesting_exp?(node)
-      case node
-      when Expressions, VisibilityModifier, MacroFor, MacroIf, MacroExpression, Require, IfDef
-        false
-      else
-        true
       end
     end
 
@@ -78,91 +59,11 @@ module Crystal
       end
     end
 
-    # Transform a multi assign into many assigns.
-    def transform(node : MultiAssign)
-      # From:
-      #
-      #     a, b = [1, 2]
-      #
-      #
-      # To:
-      #
-      #     temp = [1, 2]
-      #     a = temp[0]
-      #     b = temp[1]
-      if node.values.size == 1
-        value = node.values[0]
-
-        temp_var = new_temp_var
-
-        assigns = Array(ASTNode).new(node.targets.size + 1)
-        assigns << Assign.new(temp_var.clone, value).at(value)
-        node.targets.each_with_index do |target, i|
-          call = Call.new(temp_var.clone, "[]", NumberLiteral.new(i)).at(value)
-          assigns << transform_multi_assign_target(target, call)
-        end
-        exps = Expressions.new(assigns)
-
-      # From:
-      #
-      #     a = 1, 2, 3
-      #
-      # To:
-      #
-      #     a = [1, 2, 3]
-      elsif node.targets.size == 1
-        target = node.targets.first
-        array = ArrayLiteral.new(node.values)
-        exps = transform_multi_assign_target(target, array)
-
-      # From:
-      #
-      #     a, b = c, d
-      #
-      # To:
-      #
-      #     temp1 = c
-      #     temp2 = d
-      #     a = temp1
-      #     b = temp2
-      else
-        temp_vars = node.values.map { new_temp_var }
-
-        assign_to_temps = [] of ASTNode
-        assign_from_temps = [] of ASTNode
-
-        temp_vars.each_with_index do |temp_var_2, i|
-          target = node.targets[i]
-          value = node.values[i]
-          if target.is_a?(Path)
-            assign_from_temps << Assign.new(target, value).at(node)
-          else
-            assign_to_temps << Assign.new(temp_var_2.clone, value).at(node)
-            assign_from_temps << transform_multi_assign_target(target, temp_var_2.clone)
-          end
-        end
-
-        exps = Expressions.new(assign_to_temps + assign_from_temps)
-      end
-      exps.location = node.location
-      exps.transform(self)
-    end
-
-    def transform_multi_assign_target(target, value)
-      if target.is_a?(Call)
-        target.name = "#{target.name}="
-        target.args << value
-        target
-      else
-        Assign.new(target, value).at(target)
-      end
-    end
-
     def transform(node : Call)
       # Copy enclosing def's args to super/previous_def without parenthesis
       case node.name
       when "super", "previous_def"
-        if node.args.empty? && !node.has_parenthesis
+        if node.args.empty? && !node.has_parentheses?
           if current_def = @current_def
             current_def.args.each_with_index do |arg, i|
               arg = Var.new(arg.name)
@@ -170,7 +71,7 @@ module Crystal
               node.args.push arg
             end
           end
-          node.has_parenthesis = true
+          node.has_parentheses = true
         end
       end
 
@@ -180,9 +81,9 @@ module Crystal
         when NumberLiteral, Var, InstanceVar
           transform_many node.args
           left = obj
-          right = Call.new(middle, node.name, node.args)
+          right = Call.new(middle.clone, node.name, node.args)
         else
-          temp_var = new_temp_var
+          temp_var = program.new_temp_var
           temp_assign = Assign.new(temp_var.clone, middle)
           left = Call.new(obj.obj, obj.name, temp_assign)
           right = Call.new(temp_var.clone, node.name, node.args)
@@ -214,9 +115,11 @@ module Crystal
       # and it doesn't use it, we remove it because it's useless
       # and the semantic code won't have to bother checking it
       block_arg = node.block_arg
-      if !node.uses_block_arg && block_arg
-        block_arg_fun = block_arg.fun
-        if block_arg_fun.is_a?(Fun) && !block_arg_fun.inputs && !block_arg_fun.output
+      if !node.uses_block_arg? && block_arg
+        block_arg_restriction = block_arg.restriction
+        if block_arg_restriction.is_a?(ProcNotation) && !block_arg_restriction.inputs && !block_arg_restriction.output
+          node.block_arg = nil
+        elsif !block_arg_restriction
           node.block_arg = nil
         end
       end
@@ -237,7 +140,7 @@ module Crystal
       node.else = node.else.transform(self)
       else_dead_code = @dead_code
 
-      @dead_code = then_dead_code &&  else_dead_code
+      @dead_code = then_dead_code && else_dead_code
       node
     end
 
@@ -277,7 +180,7 @@ module Crystal
     #    end
     def transform(node : Until)
       node = super
-      not_exp = Call.new(node.cond, "!").at(node.cond)
+      not_exp = Not.new(node.cond).at(node.cond)
       While.new(not_exp, node.body).at(node)
     end
 
@@ -285,7 +188,7 @@ module Crystal
     # If they hold, keep the "then" part.
     # If they don't, keep the "else" part.
     def transform(node : IfDef)
-      cond_value = program.eval_flags(node.cond)
+      cond_value = eval_flags(node.cond)
       if cond_value
         node.then.transform(self)
       else
@@ -293,37 +196,59 @@ module Crystal
       end
     end
 
-    # Transform require to its source code.
-    # The source code can be a Nop if the file was already required.
-    def transform(node : Require)
-      if @exp_nest > 0
-        node.raise "can't require dynamically"
-      end
+    # Check if the right hand side is dead code
+    def transform(node : Assign)
+      super
 
-      location = node.location
-      filenames = @program.find_in_path(node.string, location.try &.filename)
-      if filenames
-        nodes = Array(ASTNode).new(filenames.size)
-        filenames.each do |filename|
-          if @program.add_to_requires(filename)
-            parser = Parser.new File.read(filename)
-            parser.filename = filename
-            parser.wants_doc = @program.wants_doc?
-            nodes << parser.parse.transform(self)
-          end
-        end
-        Expressions.from(nodes)
+      if @dead_code
+        node.value
       else
-        Nop.new
+        node
       end
-    rescue ex : Crystal::Exception
-      node.raise "while requiring \"#{node.string}\"", ex
-    rescue ex
-      node.raise "while requiring \"#{node.string}\": #{ex.message}"
     end
 
-    def new_temp_var
-      program.new_temp_var
+    def eval_flags(node)
+      evaluator = FlagsEvaluator.new(program)
+      node.accept evaluator
+      evaluator.value
+    end
+
+    class FlagsEvaluator < Visitor
+      getter value : Bool
+
+      def initialize(@program : Program)
+        @value = false
+      end
+
+      def visit(node : Var)
+        @value = @program.has_flag?(node.name)
+      end
+
+      def visit(node : Not)
+        node.exp.accept self
+        @value = !@value
+        false
+      end
+
+      def visit(node : And)
+        node.left.accept self
+        left_value = @value
+        node.right.accept self
+        @value = left_value && @value
+        false
+      end
+
+      def visit(node : Or)
+        node.left.accept self
+        left_value = @value
+        node.right.accept self
+        @value = left_value || @value
+        false
+      end
+
+      def visit(node : ASTNode)
+        raise "Bug: shouldn't visit #{node} in FlagsEvaluator"
+      end
     end
   end
 end

@@ -1,27 +1,24 @@
+require "c/fcntl"
+
 # An IO over a file descriptor.
 class IO::FileDescriptor
   include Buffered
 
-  private getter! readers
-  private getter! writers
+  @read_timeout : Float64?
+  @write_timeout : Float64?
+  @read_event : Event::Event?
+  @write_event : Event::Event?
 
   # :nodoc:
-  property read_timed_out, write_timed_out # only used in event callbacks
+  property read_timed_out : Bool
+  property write_timed_out : Bool
 
-  def initialize(fd, blocking = false, edge_triggerable = false)
+  def initialize(@fd : Int32, blocking = false, edge_triggerable = false)
     @edge_triggerable = !!edge_triggerable
-    @flush_on_newline = false
-    @sync = false
     @closed = false
     @read_timed_out = false
     @write_timed_out = false
     @fd = fd
-    @in_buffer_rem = Slice.new(Pointer(UInt8).null, 0)
-    @out_count = 0
-    @read_timeout = nil
-    @write_timeout = nil
-    @readers = [] of Fiber
-    @writers = [] of Fiber
 
     unless blocking
       self.blocking = false
@@ -63,49 +60,49 @@ class IO::FileDescriptor
   end
 
   def blocking
-    fcntl(LibC::FCNTL::F_GETFL) & LibC::O_NONBLOCK == 0
+    fcntl(LibC::F_GETFL) & LibC::O_NONBLOCK == 0
   end
 
   def blocking=(value)
-    flags = fcntl(LibC::FCNTL::F_GETFL)
+    flags = fcntl(LibC::F_GETFL)
     if value
       flags &= ~LibC::O_NONBLOCK
     else
       flags |= LibC::O_NONBLOCK
     end
-    fcntl(LibC::FCNTL::F_SETFL, flags)
+    fcntl(LibC::F_SETFL, flags)
   end
 
   def close_on_exec?
-    flags = fcntl(LibC::FCNTL::F_GETFD)
+    flags = fcntl(LibC::F_GETFD)
     (flags & LibC::FD_CLOEXEC) == LibC::FD_CLOEXEC
   end
 
   def close_on_exec=(arg : Bool)
-    fcntl(LibC::FCNTL::F_SETFD, arg ? LibC::FD_CLOEXEC : 0)
+    fcntl(LibC::F_SETFD, arg ? LibC::FD_CLOEXEC : 0)
     arg
   end
 
-  def self.fcntl fd, cmd, arg = 0
+  def self.fcntl(fd, cmd, arg = 0)
     r = LibC.fcntl fd, cmd, arg
     raise Errno.new("fcntl() failed") if r == -1
     r
   end
 
-  def fcntl cmd, arg = 0
+  def fcntl(cmd, arg = 0)
     self.class.fcntl @fd, cmd, arg
   end
 
   # :nodoc:
   def resume_read
-    if reader = readers.pop?
+    if reader = @readers.try &.shift?
       reader.resume
     end
   end
 
   # :nodoc:
   def resume_write
-    if writer = writers.pop?
+    if writer = @writers.try &.shift?
       writer.resume
     end
   end
@@ -115,6 +112,65 @@ class IO::FileDescriptor
       raise Errno.new("Unable to get stat")
     end
     File::Stat.new(stat)
+  end
+
+  # Seeks to a given *offset* (in bytes) according to the *whence* argument.
+  # Returns `self`.
+  #
+  # ```
+  # file = File.new("testfile")
+  # file.gets(3) # => "abc"
+  # file.seek(1, IO::Seek::Set)
+  # file.gets(2) # => "bc"
+  # file.seek(-1, IO::Seek::Current)
+  # file.gets(1) # => "c"
+  # ```
+  def seek(offset, whence : Seek = Seek::Set)
+    check_open
+
+    flush
+    seek_value = LibC.lseek(@fd, offset, whence)
+    if seek_value == -1
+      raise Errno.new "Unable to seek"
+    end
+
+    @in_buffer_rem = Slice.new(Pointer(UInt8).null, 0)
+
+    self
+  end
+
+  # Same as `pos`.
+  def tell
+    pos
+  end
+
+  # Returns the current position (in bytes) in this IO.
+  #
+  # ```
+  # io = MemoryIO.new "hello"
+  # io.pos     # => 0
+  # io.gets(2) # => "he"
+  # io.pos     # => 2
+  # ```
+  def pos
+    check_open
+
+    seek_value = LibC.lseek(@fd, 0, Seek::Current)
+    raise Errno.new "Unable to tell" if seek_value == -1
+
+    seek_value - @in_buffer_rem.size
+  end
+
+  # Sets the current position (in bytes) in this IO.
+  #
+  # ```
+  # io = MemoryIO.new "hello"
+  # io.pos = 3
+  # io.gets_to_end # => "lo"
+  # ```
+  def pos=(value)
+    seek value
+    value
   end
 
   def fd
@@ -146,42 +202,51 @@ class IO::FileDescriptor
     other
   end
 
-  def to_fd_io
-    self
+  def inspect(io)
+    io << "#<IO::FileDescriptor:"
+    if closed?
+      io << "(closed)"
+    else
+      io << " fd=" << @fd
+    end
+    io << ">"
+    io
   end
 
   private def unbuffered_read(slice : Slice(UInt8))
     count = slice.size
     loop do
-      bytes_read = LibC.read(@fd, slice.pointer(count), count)
+      bytes_read = LibC.read(@fd, slice.pointer(count).as(Void*), count)
       if bytes_read != -1
         return bytes_read
       end
 
-      if LibC.errno == Errno::EAGAIN
+      if Errno.value == Errno::EAGAIN
         wait_readable
       else
         raise Errno.new "Error reading file"
       end
     end
   ensure
-    add_read_event unless readers.empty?
+    if (readers = @readers) && !readers.empty?
+      add_read_event
+    end
   end
 
   private def unbuffered_write(slice : Slice(UInt8))
     count = slice.size
     total = count
     loop do
-      bytes_written = LibC.write(@fd, slice.pointer(count), count)
+      bytes_written = LibC.write(@fd, slice.pointer(count).as(Void*), count)
       if bytes_written != -1
         count -= bytes_written
         return total if count == 0
         slice += bytes_written
       else
-        if LibC.errno == Errno::EAGAIN
+        if Errno.value == Errno::EAGAIN
           wait_writable
           next
-        elsif LibC.errno == Errno::EBADF
+        elsif Errno.value == Errno::EBADF
           raise IO::Error.new "File not open for writing"
         else
           raise Errno.new "Error writing file"
@@ -189,7 +254,9 @@ class IO::FileDescriptor
       end
     end
   ensure
-    add_write_event unless writers.empty?
+    if (writers = @writers) && !writers.empty?
+      add_write_event
+    end
   end
 
   private def wait_readable
@@ -197,6 +264,7 @@ class IO::FileDescriptor
   end
 
   private def wait_readable
+    readers = (@readers ||= Deque(Fiber).new)
     readers << Fiber.current
     add_read_event
     Scheduler.reschedule
@@ -216,12 +284,13 @@ class IO::FileDescriptor
     nil
   end
 
-  private def wait_writable timeout = @write_timeout
+  private def wait_writable(timeout = @write_timeout)
     wait_writable(timeout: timeout) { |err| raise err }
   end
 
   # msg/timeout are overridden in nonblock_connect
-  private def wait_writable msg = "write timed out", timeout = @write_timeout
+  private def wait_writable(msg = "write timed out", timeout = @write_timeout)
+    writers = (@writers ||= Deque(Fiber).new)
     writers << Fiber.current
     add_write_event timeout
     Scheduler.reschedule
@@ -234,7 +303,7 @@ class IO::FileDescriptor
     nil
   end
 
-  private def add_write_event timeout = @write_timeout
+  private def add_write_event(timeout = @write_timeout)
     return if @edge_triggerable
     event = @write_event ||= Scheduler.create_fd_write_event(self)
     event.add timeout
@@ -251,7 +320,7 @@ class IO::FileDescriptor
 
     err = nil
     if LibC.close(@fd) != 0
-      case LibC.errno
+      case Errno.value
       when Errno::EINTR, Errno::EINPROGRESS
         # ignore
       else
@@ -265,21 +334,20 @@ class IO::FileDescriptor
     @read_event = nil
     @write_event.try &.free
     @write_event = nil
-    Scheduler.enqueue @readers
-    @readers.clear
-    Scheduler.enqueue @writers
-    @writers.clear
+    if readers = @readers
+      Scheduler.enqueue readers
+      readers.clear
+    end
+
+    if writers = @writers
+      Scheduler.enqueue writers
+      writers.clear
+    end
 
     raise err if err
   end
 
   private def unbuffered_flush
     # Nothing
-  end
-
-  private def check_open
-    if closed?
-      raise IO::Error.new "closed stream"
-    end
   end
 end

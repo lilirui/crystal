@@ -1,11 +1,14 @@
+require "c/signal"
+require "c/unistd"
+
 # :nodoc:
 # Singleton that runs Signal events (libevent2) in it's own Fiber.
 class Event::SignalHandler
-  def self.add_handler *args
+  def self.add_handler(*args)
     instance.add_handler *args
   end
 
-  def self.del_handler signal
+  def self.del_handler(signal)
     @@instance.try &.del_handler(signal)
   end
 
@@ -23,57 +26,57 @@ class Event::SignalHandler
     @@instance ||= new
   end
 
+  @read_pipe : IO::FileDescriptor
+  @write_pipe : IO::FileDescriptor
+
+  @@write_pipe : IO::FileDescriptor?
+
   def initialize
-    @callbacks = Hash(Signal, (Signal -> Void)).new
-    @pipes = IO.pipe
-    @@write_pipe = @pipes[1]
+    @callbacks = Hash(Signal, (Signal ->)).new
+    @read_pipe, @write_pipe = IO.pipe
+    @@write_pipe = @write_pipe
 
     spawn_reader
   end
 
   # :nodoc:
   def run
-    read_pipe = @pipes[0]
-    sig = 0
-    slice = Slice(UInt8).new pointerof(sig) as Pointer(UInt8), sizeof(typeof(sig))
+    read_pipe = @read_pipe
 
     loop do
-     bytes = read_pipe.read slice
-     break if bytes == 0
-     raise "bad read #{bytes} : #{slice.size}" if bytes != slice.size
-     handle_signal Signal.new(sig)
+      sig = read_pipe.read_bytes(Int32)
+      handle_signal Signal.new(sig)
     end
   end
 
   def after_fork
     close
-    @pipes = IO.pipe
-    @@write_pipe = @pipes[1]
+    @read_pipe, @write_pipe = IO.pipe
+    @@write_pipe = @write_pipe
     spawn_reader
   end
 
   def close
-    @pipes[0].close
-    @pipes[1].close
+    # Close writer only: reader will give EOF
+    @write_pipe.close
   end
 
-  def add_handler signal : Signal, callback
+  def add_handler(signal : Signal, callback)
     @callbacks[signal] = callback
 
-    LibC.signal signal.value, ->(sig) do
-      slice = Slice(UInt8).new pointerof(sig) as Pointer(UInt8), sizeof(typeof(sig))
-      @@write_pipe.not_nil!.write slice
+    LibC.signal signal.value, ->(sig : Int32) do
+      @@write_pipe.not_nil!.write_bytes sig
       nil
     end
   end
 
-  def del_handler signal : Signal
+  def del_handler(signal : Signal)
     if callback = @callbacks[signal]?
       @callbacks.delete signal
     end
   end
 
-  private def handle_signal sig
+  private def handle_signal(sig)
     if callback = @callbacks[sig]?
       callback.call sig
     else
@@ -90,5 +93,3 @@ class Event::SignalHandler
     spawn { run }
   end
 end
-
-

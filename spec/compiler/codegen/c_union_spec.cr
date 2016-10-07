@@ -95,7 +95,7 @@ describe "Code gen: c union" do
 
       color = LibNVG::Color.new
       color.to_s
-      )).to_string.should eq("LibNVG::Color()")
+      )).to_string.should eq("LibNVG::Color(@array=0)")
   end
 
   it "automatically converts numeric type in field assignment" do
@@ -148,5 +148,70 @@ describe "Code gen: c union" do
       foo.x = Foo.new
       foo.x
       )).to_i.should eq(123)
+  end
+
+  it "aligns to the member with biggest align requirements" do
+    run(%(
+      lib LibFoo
+        union Foo
+          bytes : UInt8[4]
+          short : UInt16
+        end
+
+        struct Bar
+          a : Int8
+          b : Foo
+        end
+      end
+
+      class String
+        def to_unsafe
+          pointerof(@c)
+        end
+      end
+
+      str = "00XX0"
+      foo = str.to_unsafe.as(LibFoo::Bar*)
+      foo.value.b.short.to_i
+      )).to_i.should eq(0x5858)
+  end
+
+  it "fills union type to the max size" do
+    run(%(
+      lib LibFoo
+        union Foo
+          bytes : UInt8[4]
+          short : UInt16
+        end
+
+        struct Bar
+          a : Int8
+          b : Foo
+        end
+      end
+
+      sizeof(LibFoo::Bar)
+      )).to_i.should eq(6)
+  end
+
+  it "reads union instance var" do
+    run(%(
+      lib LibFoo
+        union Foo
+          char : Char
+          int : Int32
+        end
+      end
+
+      struct LibFoo::Foo
+        def read_int
+          @int
+        end
+      end
+
+      foo = LibFoo::Foo.new
+      foo.int = 42
+      foo.read_int
+      )).to_i.should eq(42)
   end
 end

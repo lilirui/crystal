@@ -2,28 +2,8 @@ require "../types"
 
 module Crystal
   class Type
-    def check_method_missing(signature)
-      false
-    end
+    ONE_ARG = [Arg.new("a1")]
 
-    def lookup_method_missing
-      # method_missing is actually stored in the metaclass
-      method_missing = metaclass.lookup_macro("method_missing", 1, nil)
-      return method_missing if method_missing
-
-      method_missing = metaclass.lookup_macro("method_missing", 3, nil)
-      return method_missing if method_missing
-
-      parents.try &.each do |parent|
-        method_missing = parent.lookup_method_missing
-        return method_missing if method_missing
-      end
-
-      nil
-    end
-  end
-
-  module MatchesLookup
     def check_method_missing(signature)
       if !metaclass? && signature.name != "initialize"
         # Make sure to define method missing in the whole hierarchy
@@ -42,6 +22,19 @@ module Crystal
       false
     end
 
+    def lookup_method_missing
+      # method_missing is actually stored in the metaclass
+      method_missing = metaclass.lookup_macro("method_missing", ONE_ARG, nil)
+      return method_missing if method_missing
+
+      parents.try &.each do |parent|
+        method_missing = parent.lookup_method_missing
+        return method_missing if method_missing
+      end
+
+      nil
+    end
+
     def define_method_from_method_missing(method_missing, signature)
       name_node = StringLiteral.new(signature.name)
       args_nodes = [] of ASTNode
@@ -56,7 +49,7 @@ module Crystal
         block_vars = block.args.map_with_index do |var, index|
           Var.new("_block_arg#{index}")
         end
-        yield_exps = block_vars.map { |var| var.clone as ASTNode }
+        yield_exps = block_vars.map { |var| var.clone.as(ASTNode) }
         block_body = Yield.new(yield_exps)
         block_node = Block.new(block_vars, block_body)
       else
@@ -65,14 +58,10 @@ module Crystal
 
       a_def = Def.new(signature.name, args_nodes_names.map { |name| Arg.new(name) })
 
-      if method_missing.args.size == 1
-        call = Call.new(nil, signature.name, args: args_nodes, block: block_node.is_a?(Block) ? block_node : nil)
-        fake_call = Call.new(nil, "method_missing", [call] of ASTNode)
-      else
-        fake_call = Call.new(nil, "method_missing", [name_node, args_node, block_node] of ASTNode)
-      end
+      call = Call.new(nil, signature.name, args: args_nodes, block: block_node.is_a?(Block) ? block_node : nil)
+      fake_call = Call.new(nil, "method_missing", [call] of ASTNode)
 
-      expanded_macro = program.expand_macro method_missing, fake_call, self
+      expanded_macro = program.expand_macro method_missing, fake_call, self, self
       generated_nodes = program.parse_macro_source(expanded_macro, method_missing, method_missing, args_nodes_names) do |parser|
         parser.parse_to_def(a_def)
       end
@@ -82,12 +71,18 @@ module Crystal
 
       owner = self
       owner = owner.base_type if owner.is_a?(VirtualType)
-      owner.add_def(a_def) if owner.is_a?(DefContainer)
+
+      if owner.is_a?(ModuleType)
+        owner.add_def(a_def)
+        true
+      else
+        false
+      end
     end
   end
 
-  class GenericClassInstanceType
-    delegate check_method_missing, @generic_class
+  class GenericInstanceType
+    delegate check_method_missing, to: @generic_type
   end
 
   class VirtualType
@@ -106,7 +101,7 @@ module Crystal
       defined = false
 
       base_type.subclasses.each do |subclass|
-        next unless subclass.is_a?(DefContainer)
+        next unless subclass.is_a?(ModuleType)
 
         # First check if we can find the method
         existing_def = subclass.lookup_first_def(signature.name, signature.block)

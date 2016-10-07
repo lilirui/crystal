@@ -1,8 +1,7 @@
 class LLVM::Module
-  getter unwrap
-  getter name
+  getter name : String
 
-  def initialize(@name)
+  def initialize(@name : String)
     @unwrap = LibLLVM.module_create_with_name @name
     @owned = false
   end
@@ -35,7 +34,7 @@ class LLVM::Module
     error = LibLLVM.verify_module(self, LLVM::VerifierFailureAction::ReturnStatusAction, out message)
     begin
       if error == 1
-        raise "Module validation failed: #{LLVM.string_and_dispose(message)}"
+        raise "Module validation failed: #{String.new(message)}"
       end
     ensure
       LibLLVM.dispose_message(message)

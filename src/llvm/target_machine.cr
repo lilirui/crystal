@@ -1,5 +1,5 @@
 class LLVM::TargetMachine
-  def initialize(@unwrap)
+  def initialize(@unwrap : LibLLVM::TargetMachineRef)
   end
 
   def target
@@ -36,7 +36,7 @@ class LLVM::TargetMachine
   def abi
     triple = self.triple
     case triple
-    when /x86_64/
+    when /x86_64|amd64/
       ABI::X86_64.new(self)
     when /i386|i686/
       ABI::X86.new(self)

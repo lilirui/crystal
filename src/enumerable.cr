@@ -18,15 +18,21 @@
 # end
 #
 # three = Three.new
-# three.to_a                      #=> [1, 2, 3]
-# three.select &.odd?             #=> [1, 3]
-# three.all? { |x| x < 10 }       #=> true
+# three.to_a                # => [1, 2, 3]
+# three.select &.odd?       # => [1, 3]
+# three.all? { |x| x < 10 } # => true
 # ```
 #
 # Note that most search and filter methods traverse an Enumerable eagerly,
 # producing an `Array` as the result. For a lazy alternative refer to
 # the `Iterator` and `Iterable` modules.
 module Enumerable(T)
+  class EmptyError < Exception
+    def initialize(message = "Empty enumerable")
+      super(message)
+    end
+  end
+
   # Must yield this collection's elements to the block.
   abstract def each(&block : T -> _)
 
@@ -151,12 +157,16 @@ module Enumerable(T)
   #
   # Note that the last one can be smaller.
   def each_slice(count : Int)
-    slice = Array(T).new(count)
+    each_slice_internal(count, Array(T)) { |slice| yield slice }
+  end
+
+  private def each_slice_internal(count : Int, type)
+    slice = type.new(count)
     each do |elem|
       slice << elem
       if slice.size == count
         yield slice
-        slice = Array(T).new(count)
+        slice = type.new(count)
       end
     end
     yield slice unless slice.empty?
@@ -174,7 +184,7 @@ module Enumerable(T)
   #     User #0: Alice
   #     User #1: Bob
   #
-  # Accepts an optional *offset* parameter, which tells it to start counting from there. So, a more humand
+  # Accepts an optional *offset* parameter, which tells it to start counting from there. So, a more human
   # friendly version of the previous snippet would be:
   #
   #     ["Alice", "Bob"].each_with_index(1) do |user, i|
@@ -240,7 +250,7 @@ module Enumerable(T)
   #     ["Alice", "Bob"].flat_map do |user|
   #       user.chars
   #     end  #=> ['A', 'l', 'i', 'c', 'e', 'B', 'o', 'b']
-  def flat_map(&block : T -> Array(U))
+  def flat_map(&block : T -> Array(U)) forall U
     ary = [] of U
     each { |e| ary.concat(yield e) }
     ary
@@ -251,7 +261,7 @@ module Enumerable(T)
   #     ["Alice", "Bob"].grep(/^A/)  #=> ["Alice"]
   #
   def grep(pattern)
-    select { |elem| pattern === elem }
+    self.select { |elem| pattern === elem }
   end
 
   # Returns a `Hash` whose keys are each different value that the passed block returned when run for each element in the
@@ -259,7 +269,7 @@ module Enumerable(T)
   #
   #     ["Alice", "Bob", "Ary"].group_by { |name| name.size }  #=> {5 => ["Alice"], 3 => ["Bob", "Ary"]}
   #
-  def group_by(&block : T -> U)
+  def group_by(&block : T -> U) forall U
     h = Hash(U, Array(T)).new
     each do |e|
       v = yield e
@@ -277,20 +287,13 @@ module Enumerable(T)
   #     [1, 2, 3].in_groups_of(2, 0) #=> [[1, 2], [3, 0]]
   #     [1, 2, 3].in_groups_of(2) #=> [[1, 2], [3, nil]]
   #
-  def in_groups_of(size : Int, filled_up_with = nil)
+  def in_groups_of(size : Int, filled_up_with : U = nil) forall U
     raise ArgumentError.new("size must be positive") if size <= 0
 
-    # TODO: this consumes the enumerable twice, fix
-    parts_count = (self.size.to_f / size).ceil.to_i
-    ary         = Array(Array(T | typeof(filled_up_with))).new(parts_count)
-    parts_count.times do |i|
-      ary << Array(T | typeof(filled_up_with)).new(size, filled_up_with)
+    ary = Array(Array(T | U)).new
+    in_groups_of(size, filled_up_with) do |group|
+      ary << group
     end
-
-    each_with_index do |e, i|
-      ary[i / size][i % size] = e
-    end
-
     ary
   end
 
@@ -300,19 +303,15 @@ module Enumerable(T)
   #     #=> 3
   #     #=> 4
   #
-  def in_groups_of(size : Int, filled_up_with = nil)
+  def in_groups_of(size : Int, filled_up_with : U = nil, &block) forall U
     raise ArgumentError.new("size must be positive") if size <= 0
-    ary = Array(T | typeof(filled_up_with)).new(size, filled_up_with)
 
-    # TODO: this consumes the enumerable twice, fix
-    count = self.size
-
-    each_with_index do |e, i|
-      ary[i % size] = e
-      if i % size == size - 1 || i == count - 1
-        yield ary
-        ary = Array(T | typeof(filled_up_with)).new(size, filled_up_with)
+    each_slice_internal(size, Array(T | U)) do |slice|
+      unless slice.size == size
+        slice.concat(Array(T | U).new(size - slice.size, filled_up_with))
       end
+
+      yield slice
     end
   end
 
@@ -346,8 +345,7 @@ module Enumerable(T)
     index { |e| e == obj }
   end
 
-
-  # Convers an Enumerable to a hash by using the value returned by the block
+  # Converts an Enumerable to a hash by using the value returned by the block
   # as the hash key.
   # Be aware, if two elements return the same value as a key one will override
   # the other. If you want to keep all values, then you should probably use
@@ -359,7 +357,7 @@ module Enumerable(T)
   #     # => {4=>"Anna", 3=>"Bob", 5=>"Alice"}
   #
   #
-  def index_by(&block : T -> U)
+  def index_by(&block : T -> U) forall U
     hash = {} of U => T
     each do |elem|
       hash[yield elem] = elem
@@ -367,20 +365,21 @@ module Enumerable(T)
     hash
   end
 
-  # Combines all elements in the collection by applying a binary operation, specified by a block.
+  # Combines all elements in the collection by applying a binary operation, specified by a block, so as
+  # to reduce them to a single value.
   #
   # For each element in the collection the block is passed an accumulator value (*memo*) and the element. The
   # result becomes the new value for *memo*. At the end of the iteration, the final value of *memo* is
   # the return value for the method. The initial value for the accumulator is the first element in the collection.
   #
-  #     [1, 2, 3, 4, 5].inject { |acc, i| acc + i }  #=> 15
+  #     [1, 2, 3, 4, 5].reduce { |acc, i| acc + i }  #=> 15
   #
-  def inject
-    memo :: T
+  def reduce
+    memo = uninitialized T
     found = false
 
-    each_with_index do |elem, i|
-      memo = i == 0 ? elem : yield memo, elem
+    each do |elem|
+      memo = found ? (yield memo, elem) : elem
       found = true
     end
 
@@ -389,9 +388,9 @@ module Enumerable(T)
 
   # Just like the other variant, but you can set the initial value of the accumulator.
   #
-  #     [1, 2, 3, 4, 5].inject(10) { |acc, i| acc + i }  #=> 25
+  #     [1, 2, 3, 4, 5].reduce(10) { |acc, i| acc + i }  #=> 25
   #
-  def inject(memo)
+  def reduce(memo)
     each do |elem|
       memo = yield memo, elem
     end
@@ -454,7 +453,7 @@ module Enumerable(T)
   #
   #     [1, 2, 3].map { |i| i * 10 }  #=> [10, 20, 30]
   #
-  def map(&block : T -> U)
+  def map(&block : T -> U) forall U
     ary = [] of U
     each { |e| ary << yield e }
     ary
@@ -494,21 +493,21 @@ module Enumerable(T)
   #     ["Alice", "Bob"].max_by { |name| name.size }  #=> "Alice"
   #
   # Raises `Enumerable::EmptyError` if the collection is empty.
-  def max_by(&block : T -> U)
-    found, value = max_by_internal {|value| yield value }
+  def max_by(&block : T -> U) forall U
+    found, value = max_by_internal { |value| yield value }
     raise Enumerable::EmptyError.new unless found
     value
   end
 
   # Like `max_by` but returns nil if the collection is empty.
-  def max_by?(&block : T -> U)
-    found, value = max_by_internal {|value| yield value }
+  def max_by?(&block : T -> U) forall U
+    found, value = max_by_internal { |value| yield value }
     found ? value : nil
   end
 
-  private def max_by_internal(&block : T -> U)
-    max :: U
-    obj :: T
+  private def max_by_internal(&block : T -> U) forall U
+    max = uninitialized U
+    obj = uninitialized T
     found = false
 
     each_with_index do |elem, i|
@@ -527,20 +526,20 @@ module Enumerable(T)
   #
   #     ["Alice", "Bob"].max_of { |name| name.size }  #=> 5 (Alice's size)
   #
-  def max_of(&block : T -> U)
-    found, value = max_of_internal {|value| yield value }
+  def max_of(&block : T -> U) forall U
+    found, value = max_of_internal { |value| yield value }
     raise Enumerable::EmptyError.new unless found
     value
   end
 
   # Like `max_of` but returns nil if the collection is empty.
-  def max_of?(&block : T -> U)
-    found, value = max_of_internal {|value| yield value }
+  def max_of?(&block : T -> U) forall U
+    found, value = max_of_internal { |value| yield value }
     found ? value : nil
   end
 
-  private def max_of_internal(&block : T -> U)
-    max :: U
+  private def max_of_internal(&block : T -> U) forall U
+    max = uninitialized U
     found = false
 
     each_with_index do |elem, i|
@@ -578,21 +577,21 @@ module Enumerable(T)
   #     ["Alice", "Bob"].min_by { |name| name.size }  #=> "Bob"
   #
   # Raises `Enumerable::EmptyError` if the collection is empty.
-  def min_by(&block : T -> U)
-    found, value = min_by_internal {|value| yield value }
+  def min_by(&block : T -> U) forall U
+    found, value = min_by_internal { |value| yield value }
     raise Enumerable::EmptyError.new unless found
     value
   end
 
   # Like `min_by` but returns nil if the collection is empty.
-  def min_by?(&block : T -> U)
-    found, value = min_by_internal {|value| yield value }
+  def min_by?(&block : T -> U) forall U
+    found, value = min_by_internal { |value| yield value }
     found ? value : nil
   end
 
-  private def min_by_internal(&block : T -> U)
-    min :: U
-    obj :: T
+  private def min_by_internal(&block : T -> U) forall U
+    min = uninitialized U
+    obj = uninitialized T
     found = false
 
     each_with_index do |elem, i|
@@ -611,20 +610,20 @@ module Enumerable(T)
   #
   #     ["Alice", "Bob"].min_of { |name| name.size }  #=> 3 (Bob's size)
   #
-  def min_of(&block : T -> U)
-    found, value = min_of_internal {|value| yield value }
+  def min_of(&block : T -> U) forall U
+    found, value = min_of_internal { |value| yield value }
     raise Enumerable::EmptyError.new unless found
     value
   end
 
   # Like `min_of` but returns nil if the collection is empty.
-  def min_of?(&block : T -> U)
-    found, value = min_of_internal {|value| yield value }
+  def min_of?(&block : T -> U) forall U
+    found, value = min_of_internal { |value| yield value }
     found ? value : nil
   end
 
-  private def min_of_internal(&block : T -> U)
-    min :: U
+  private def min_of_internal(&block : T -> U) forall U
+    min = uninitialized U
     found = false
 
     each_with_index do |elem, i|
@@ -657,23 +656,23 @@ module Enumerable(T)
   #     ["Alice", "Bob", "Carl"].minmax_by { |name| name.size }  #=> {"Bob", "Alice"}
   #
   # Raises `Enumerable::EmptyError` if the collection is empty.
-  def minmax_by(&block : T -> U)
-    found, value = minmax_by_internal {|value| yield value }
+  def minmax_by(&block : T -> U) forall U
+    found, value = minmax_by_internal { |value| yield value }
     raise Enumerable::EmptyError.new unless found
     value
   end
 
   # Like `minmax_by` but returns `{nil, nil}` if the collection is empty.
-  def minmax_by?(&block : T -> U)
-    found, value = minmax_by_internal {|value| yield value }
+  def minmax_by?(&block : T -> U) forall U
+    found, value = minmax_by_internal { |value| yield value }
     found ? value : {nil, nil}
   end
 
-  private def minmax_by_internal(&block : T -> U)
-    min :: U
-    max :: U
-    objmin :: T
-    objmax :: T
+  private def minmax_by_internal(&block : T -> U) forall U
+    min = uninitialized U
+    max = uninitialized U
+    objmin = uninitialized T
+    objmax = uninitialized T
     found = false
 
     each_with_index do |elem, i|
@@ -698,21 +697,21 @@ module Enumerable(T)
   #     ["Alice", "Bob", "Carl"].minmax_of { |name| name.size }  #=> {3, 5}
   #
   # Raises `Enumerable::EmptyError` if the collection is empty.
-  def minmax_of(&block : T -> U)
-    found, value = minmax_of_internal {|value| yield value }
+  def minmax_of(&block : T -> U) forall U
+    found, value = minmax_of_internal { |value| yield value }
     raise Enumerable::EmptyError.new unless found
     value
   end
 
   # Like `minmax_of` but returns `{nil, nil}` if the collection is empty.
-  def minmax_of?(&block : T -> U)
-    found, value = minmax_of_internal {|value| yield value }
+  def minmax_of?(&block : T -> U) forall U
+    found, value = minmax_of_internal { |value| yield value }
     found ? value : {nil, nil}
   end
 
-  private def minmax_of_internal(&block : T -> U)
-    min :: U
-    max :: U
+  private def minmax_of_internal(&block : T -> U) forall U
+    min = uninitialized U
+    max = uninitialized U
     found = false
 
     each_with_index do |elem, i|
@@ -848,6 +847,9 @@ module Enumerable(T)
   end
 
   # Adds *initial* and all the elements in the collection together.
+  # The type of *initial* will be the type of the sum, so use this if
+  # (for instance) you need to specify a large enough type to avoid
+  # overflow.
   #
   # Only collections of numbers (objects that can be added via an `+` method) are supported.
   #
@@ -881,14 +883,67 @@ module Enumerable(T)
   #
   #     ([] of String).sum(1) { |name| name.size } #=> 1
   def sum(initial, &block)
-    inject(initial) { |memo, e| memo + (yield e) }
+    reduce(initial) { |memo, e| memo + (yield e) }
+  end
+
+  # Multiplies all the elements in the collection together.
+  #
+  # Only collections of numbers (objects that can be multiplied via a `*` method) are supported.
+  #
+  #     [1, 2, 3, 4, 5, 6].product  #=> 720
+  #
+  # If the collection is empty, returns 1.
+  #
+  #     ([] of Int32).product #=> 1
+  def product
+    product Reflect(T).first.zero + 1
+  end
+
+  # Multiplies *initial* and all the elements in the collection
+  # together.  The type of *initial* will be the type of the product,
+  # so use this if (for instance) you need to specify a large enough
+  # type to avoid overflow.
+  #
+  # Only collections of numbers (objects that can be multiplied via a `*` method) are supported.
+  #
+  #     [1, 2, 3, 4, 5, 6].product(7)  #=> 5040
+  #
+  # If the collection is empty, returns *initial*.
+  #
+  #     ([] of Int32).product(7) #=> 7
+  def product(initial : Number)
+    product initial, &.itself
+  end
+
+  # Multiplies all results of the passed block for each element in the collection.
+  #
+  #     ["Alice", "Bob"].product { |name| name.size }  #=> 15 (5 * 3)
+  #
+  # If the collection is empty, returns 1.
+  #
+  #     ([] of Int32).product { |x| x + 1 } #=> 1
+  def product(&block)
+    product(Reflect(typeof(yield first)).first.zero + 1) do |value|
+      yield value
+    end
+  end
+
+  # Multiplies *initial* and all results of the passed block for each element in the collection.
+  #
+  #     ["Alice", "Bob"].product(2) { |name| name.size }  #=> 30 (2 * 5 * 3)
+  #
+  # If the collection is empty, returns one.
+  #
+  #     ([] of String).product(1) { |name| name.size } #=> 1
+  def product(initial : Number, &block)
+    reduce(initial) { |memo, e| memo * (yield e) }
   end
 
   # Returns an array with the first *count* elements in the collection.
   #
   # If *count* is bigger than the number of elements in the collection, returns as many as possible. This
   # include the case of calling it over an empty collection, in which case it returns an empty array.
-  def take(count : Int)
+  def first(count : Int)
     raise ArgumentError.new("attempt to take negative size") if count < 0
 
     ary = Array(T).new(count)

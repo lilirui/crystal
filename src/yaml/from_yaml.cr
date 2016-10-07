@@ -1,39 +1,47 @@
-def Object.from_yaml(string : String)
-  parser = YAML::PullParser.new(string)
-  parser.read_stream do
-    parser.read_document do
-      new parser
+def Object.from_yaml(string : String) : self
+  YAML::PullParser.new(string) do |parser|
+    parser.read_stream do
+      parser.read_document do
+        new parser
+      end
     end
   end
 end
 
 def Array.from_yaml(string : String)
-  parser = YAML::PullParser.new(string)
-  parser.read_stream do
-    parser.read_document do
-      new(parser) do |element|
-        yield element
+  YAML::PullParser.new(string) do |parser|
+    parser.read_stream do
+      parser.read_document do
+        new(parser) do |element|
+          yield element
+        end
       end
     end
   end
 end
 
 def Nil.new(pull : YAML::PullParser)
-  pull.read_scalar
-  nil
+  value = pull.read_scalar
+  if value.empty?
+    nil
+  else
+    raise YAML::ParseException.new("expected nil, not #{value}", 0, 0)
+  end
 end
 
 def Bool.new(pull : YAML::PullParser)
   pull.read_scalar == "true"
 end
 
-def Int32.new(pull : YAML::PullParser)
-  pull.read_scalar.to_i
-end
-
-def Int64.new(pull : YAML::PullParser)
-  pull.read_scalar.to_i64
-end
+{% for type in %w(Int8 Int16 Int32 Int64 UInt8 UInt16 UInt32 UInt64) %}
+  def {{type.id}}.new(pull : YAML::PullParser)
+    begin
+      {{type.id}}.new(pull.read_scalar)
+    rescue ex
+      raise YAML::ParseException.new(ex.message.not_nil!, 0, 0)
+    end
+  end
+{% end %}
 
 def String.new(pull : YAML::PullParser)
   pull.read_scalar
@@ -83,7 +91,7 @@ def Tuple.new(pull : YAML::PullParser)
   {% if true %}
     pull.read_sequence_start
     value = Tuple.new(
-      {% for i in 0 ... @type.size %}
+      {% for i in 0...T.size %}
         (self[{{i}}].new(pull)),
       {% end %}
     )
@@ -92,9 +100,76 @@ def Tuple.new(pull : YAML::PullParser)
  {% end %}
 end
 
+def NamedTuple.new(pull : YAML::PullParser)
+  {% begin %}
+    {% for key in T.keys %}
+      %var{key.id} = nil
+    {% end %}
+
+    pull.read_mapping_start
+    while pull.kind != YAML::EventKind::MAPPING_END
+      key = pull.read_scalar
+      case key
+        {% for key, type in T %}
+          when {{key.stringify}}
+            %var{key.id} = {{type}}.new(pull)
+        {% end %}
+      else
+        pull.skip
+      end
+    end
+    pull.read_mapping_end
+
+    {% for key in T.keys %}
+      if %var{key.id}.nil?
+        raise YAML::ParseException.new("missing yaml attribute: {{key}}", 0, 0)
+      end
+    {% end %}
+
+    {
+      {% for key in T.keys %}
+        {{key}}: %var{key.id},
+      {% end %}
+    }
+  {% end %}
+end
+
+def Enum.new(pull : YAML::PullParser)
+  string = pull.read_scalar
+  if value = string.to_i64?
+    from_value(value)
+  else
+    parse(string)
+  end
+end
+
+def Union.new(pull : YAML::PullParser)
+  string = pull.read_raw
+  {% for type in T %}
+    begin
+      return {{type}}.from_yaml(string)
+    rescue YAML::ParseException
+      # Ignore
+    end
+  {% end %}
+  raise YAML::ParseException.new("couldn't parse #{self} from #{string}", 0, 0)
+end
+
 struct Time::Format
   def from_yaml(pull : YAML::PullParser)
     string = pull.read_scalar
     parse(string)
+  end
+end
+
+module Time::EpochConverter
+  def self.from_yaml(value : YAML::PullParser) : Time
+    Time.epoch(value.read_scalar.to_i)
+  end
+end
+
+module Time::EpochMillisConverter
+  def self.from_yaml(value : YAML::PullParser) : Time
+    Time.epoch_ms(value.read_scalar.to_i64)
   end
 end

@@ -1,3 +1,5 @@
+require "./csv"
+
 # A CSV Builder writes CSV to an IO.
 #
 # ```
@@ -23,7 +25,7 @@
 # puts result
 # ```
 #
-# Ouptut:
+# Output:
 #
 # ```text
 # Hello,1,a,"String with ""quotes"""
@@ -87,8 +89,10 @@ class CSV::Builder
     @first_cell_in_row = false
   end
 
-  # A CSV Row buing built.
+  # A CSV Row being built.
   struct Row
+    @builder : Builder
+
     # :nodoc:
     def initialize(@builder)
     end
@@ -131,7 +135,7 @@ class CSV::Builder
 
     private def needs_quotes?(value)
       value.each_byte do |byte|
-        case byte.chr
+        case byte.unsafe_chr
         when ',', '\n', '"'
           return true
         end

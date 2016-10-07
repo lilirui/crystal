@@ -32,35 +32,23 @@ module Crystal
     end
   end
 
-  class While
-    property :ensure_exception_handler
-  end
-
-  class Block
-    property :ensure_exception_handler
-  end
-
-  class Call
-    property :ensure_exception_handler
-  end
-
   class Def
-    property :ensure_exception_handler
+    property abi_info : LLVM::ABI::FunctionType?
 
-    def mangled_name(self_type)
+    def mangled_name(program, self_type)
       name = String.build do |str|
         str << "*"
 
         if owner = @owner
           if owner.metaclass?
-            owner.instance_type.llvm_name(str)
+            self_type.instance_type.llvm_name(str)
             if original_owner != self_type
               str << "@"
               original_owner.instance_type.llvm_name(str)
             end
             str << "::"
           elsif !owner.is_a?(Crystal::Program)
-            owner.llvm_name(str)
+            self_type.llvm_name(str)
             if original_owner != self_type
               str << "@"
               original_owner.llvm_name(str)
@@ -69,7 +57,7 @@ module Crystal
           end
         end
 
-        str << name.gsub('@', '.')
+        str << self.name.gsub('@', '.')
 
         next_def = self.next
         while next_def
@@ -77,22 +65,16 @@ module Crystal
           next_def = next_def.next
         end
 
-        needs_self_type = self_type.try &.passed_as_self?
-
-        if args.size > 0 || needs_self_type || uses_block_arg
+        if args.size > 0 || uses_block_arg?
           str << "<"
-          if needs_self_type
-            self_type.not_nil!.llvm_name(str)
-          end
           if args.size > 0
-            str << ", " if needs_self_type
             args.each_with_index do |arg, i|
               str << ", " if i > 0
               arg.type.llvm_name(str)
             end
           end
-          if uses_block_arg
-            str << ", " if needs_self_type || args.size > 0
+          if uses_block_arg?
+            str << ", " if args.size > 0
             str << "&"
             block_arg.not_nil!.type.llvm_name(str)
           end
@@ -104,30 +86,77 @@ module Crystal
         end
       end
 
-      # Windows only allows alphanumeric, dot, dollar and underscore
-      # for mangled names.
-      ifdef windows
-        name = name.gsub do |char|
-          case char
-          when '<', '>', '(', ')', '*', ':', ',', '#', ' '
-            "."
-          when '+'
-            ".."
-          else
-            char
-          end
+      Crystal.safe_mangling(program, name)
+    end
+
+    def varargs?
+      false
+    end
+
+    def call_convention
+      nil
+    end
+
+    @considered_external : Bool? = nil
+    setter considered_external
+
+    # Returns `self` as an `External` if this Def must be considered
+    # an external in the codegen, meaning we need to respect the C ABI.
+    def considered_external?
+      if @considered_external.nil?
+        @considered_external = compute_considered_external
+      end
+
+      @considered_external ? self : nil
+    end
+
+    private def compute_considered_external
+      # One case where this is not true if for LLVM instrinsics.
+      # For example overflow intrincis return a tuple, like {i32, i1}:
+      # in C ABI that is represented as i64, but we need to keep the original
+      # type here, respecting LLVM types, not the C ABI.
+      if self.is_a?(External)
+        return !self.real_name.starts_with?("llvm.")
+      end
+
+      # Another case is when an argument is an external struct, in which
+      # case we must respect the C ABI (this applies to Crystal methods
+      # and procs too)
+
+      # Only applicable to procs (no owner) for now
+      owner = @owner
+      if owner
+        return false
+      end
+
+      proc_considered_external?
+    end
+
+    def proc_considered_external?
+      # We use C ABI if:
+      # - all arguments are allowed in lib calls (because then it can be passed to C)
+      # - at least one argument type, or the return type, is an extern struct
+      found_extern = false
+
+      if (type = self.type?)
+        type = type.remove_alias
+        if type.extern?
+          found_extern = true
+        elsif !type.void? && !type.nil_type? && !type.allowed_in_lib?
+          return false
         end
       end
 
-      name
-    end
+      args.each do |arg|
+        arg_type = arg.type.remove_alias
+        if arg_type.extern?
+          found_extern = true
+        elsif !arg_type.allowed_in_lib?
+          return false
+        end
+      end
 
-    def varargs
-      false
+      found_extern
     end
-  end
-
-  class External
-    property abi_info
   end
 end

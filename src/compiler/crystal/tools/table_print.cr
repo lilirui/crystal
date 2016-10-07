@@ -1,6 +1,6 @@
 module Crystal
   class TablePrint
-    COL_SEP = '|'
+    COL_SEP     = '|'
     CELL_MARGIN = ' '
 
     struct Separator
@@ -23,7 +23,7 @@ module Crystal
         if cell.colspan == 1
           available_width = width
         else
-          available_width = table.columns.skip(cell.column_index).take(cell.colspan).sum(&.width) + 3 * (cell.colspan - 1)
+          available_width = table.columns.skip(cell.column_index).first(cell.colspan).sum(&.width) + 3 * (cell.colspan - 1)
         end
 
         case cell.align
@@ -40,10 +40,10 @@ module Crystal
     end
 
     class Cell
-      property text
-      property align
-      property colspan
-      property! column_index
+      property text : String
+      property align : Symbol
+      property colspan : Int32
+      property! column_index : Int32
 
       def initialize(@text, @align, @colspan)
       end
@@ -51,8 +51,8 @@ module Crystal
 
     alias RowTypes = Array(Cell) | Separator
 
-    property! last_string_row
-    property columns
+    property! last_string_row : Array(Cell)?
+    property columns : Array(Column)
 
     def initialize(@io : IO)
       @data = [] of RowTypes
@@ -104,7 +104,7 @@ module Crystal
     end
 
     protected def column_for_last_cell
-      col = @columns[last_string_row.size-1]?
+      col = @columns[last_string_row.size - 1]?
       unless col
         col = Column.new
         @columns << col

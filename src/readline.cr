@@ -1,4 +1,7 @@
 @[Link("readline")]
+{% if flag?(:openbsd) %}
+@[Link("termcap")]
+{% end %}
 lib LibReadline
   alias Int = LibC::Int
 
@@ -16,7 +19,7 @@ lib LibReadline
 end
 
 private def malloc_match(match)
-  match_ptr = LibC.malloc(match.bytesize + 1) as UInt8*
+  match_ptr = LibC.malloc(match.bytesize + 1).as(UInt8*)
   match_ptr.copy_from(match.to_unsafe, match.bytesize)
   match_ptr[match.bytesize] = 0_u8
   match_ptr
@@ -41,7 +44,7 @@ module Readline
     line = LibReadline.readline(prompt)
     if line
       LibReadline.add_history(line) if add_history
-      String.new(line).tap { LibC.free(line as Void*) }
+      String.new(line).tap { LibC.free(line.as(Void*)) }
     else
       nil
     end
@@ -62,11 +65,10 @@ module Readline
   end
 
   def bind_key(c : Char, &f : KeyBindingProc)
-    raise ArgumentError.new "not a valid ASCII character: '#{c.inspect}'" if !(0 <= c.ord <= 255)
+    raise ArgumentError.new "not a valid ASCII character: '#{c.inspect}'" unless 0 <= c.ord <= 255
 
-    handlers = @@key_bind_handlers || Hash(LibReadline::Int, KeyBindingProc).new
+    handlers = (@@key_bind_handlers ||= {} of LibReadline::Int => KeyBindingProc)
     handlers[c.ord] = f
-    @@key_bind_handlers = handlers
 
     res = LibReadline.rl_bind_key(c.ord, KeyBindingHandler).to_i32
     raise ArgumentError.new "invalid key: '#{c.inspect}'" unless res == 0
@@ -129,7 +131,7 @@ module Readline
 
     # We *must* to create the results using malloc (readline later frees that).
     # We create an extra result for the first element.
-    result = LibC.malloc(sizeof(UInt8*) * (matches.size + 2)) as UInt8**
+    result = LibC.malloc(sizeof(UInt8*) * (matches.size + 2)).as(UInt8**)
     matches.each_with_index do |match, i|
       result[i + 1] = malloc_match(match)
     end

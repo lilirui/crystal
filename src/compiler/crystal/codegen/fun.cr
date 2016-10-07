@@ -2,7 +2,7 @@ require "./codegen"
 
 class Crystal::CodeGenVisitor
   def target_def_fun(target_def, self_type)
-    mangled_name = target_def.mangled_name(self_type)
+    mangled_name = target_def.mangled_name(@program, self_type)
     self_type_mod = type_module(self_type)
 
     func = self_type_mod.functions[mangled_name]? || codegen_fun(mangled_name, target_def, self_type)
@@ -68,7 +68,7 @@ class Crystal::CodeGenVisitor
         emit_def_debug_metadata target_def if @debug
 
         context.fun.add_attribute LLVM::Attribute::UWTable
-        if @mod.has_flag?("darwin")
+        if @program.has_flag?("darwin")
           # Disable frame pointer elimination in Darwin, as it causes issues during stack unwind
           context.fun.add_target_dependent_attribute "no-frame-pointer-elim", "true"
           context.fun.add_target_dependent_attribute "no-frame-pointer-elim-non-leaf", "true"
@@ -88,8 +88,8 @@ class Crystal::CodeGenVisitor
         end
 
         if is_closure
-          # In the case of a closure fun literal (-> { ... }), the closure_ptr is not
-          # the one of the parent context, it's the last parameter of this fun literal.
+          # In the case of a closure proc literal (-> { ... }), the closure_ptr is not
+          # the one of the parent context, it's the last parameter of this proc literal.
           closure_parent_context = old_context.clone
           closure_parent_context.closure_ptr = fun_literal_closure_ptr
           context.closure_parent_context = closure_parent_context
@@ -114,7 +114,8 @@ class Crystal::CodeGenVisitor
         accept target_def.body
 
         set_current_debug_location target_def.end_location if @debug
-        codegen_return target_def.body.type?
+
+        codegen_return(target_def)
 
         br_from_alloca_to_entry
       end
@@ -134,9 +135,31 @@ class Crystal::CodeGenVisitor
     end
   end
 
+  def codegen_return(target_def : Def)
+    # Check if this def is considered external and the return
+    # value must be either casted or passed by sret
+    if target_def.considered_external? && (abi_info = target_def.abi_info)
+      ret_type = abi_info.return_type
+      if cast = ret_type.cast
+        casted_last = bit_cast @last, cast.pointer
+        last = load casted_last
+        ret last
+        return
+      end
+
+      if (attr = ret_type.attr) && attr == LLVM::Attribute::StructRet
+        store load(@last), context.fun.params[0]
+        ret
+        return
+      end
+    end
+
+    codegen_return target_def.body.type?
+  end
+
   def codegen_fun_signature(mangled_name, target_def, self_type, is_fun_literal, is_closure)
-    if target_def.is_a?(External)
-      codegen_fun_signature_external(mangled_name, target_def)
+    if !is_closure && (external = target_def.considered_external?)
+      codegen_fun_signature_external(mangled_name, external)
     else
       codegen_fun_signature_non_external(mangled_name, target_def, self_type, is_fun_literal, is_closure)
     end
@@ -151,7 +174,7 @@ class Crystal::CodeGenVisitor
 
     args.concat target_def.args
 
-    if target_def.uses_block_arg
+    if target_def.uses_block_arg?
       block_arg = target_def.block_arg.not_nil!
       args.push Arg.new(block_arg.name, type: block_arg.type)
     end
@@ -163,14 +186,17 @@ class Crystal::CodeGenVisitor
     llvm_args_types = args.map do |arg|
       arg_type = arg.type
       if arg_type.void?
-        arg_type = LLVM::Int8
+        llvm_arg_type = LLVM::Int8
       else
-        arg_type = llvm_arg_type(arg_type)
-        arg_type = arg_type.pointer if arg.special_var?
+        llvm_arg_type = llvm_arg_type(arg_type)
+        # We need an extra pointer for special vars that are reference-like:
+        # non-reference-like are unions, so their argument representation is already a pointer
+        # (passed byval, but for these we don't pass them byval)
+        llvm_arg_type = llvm_arg_type.pointer if arg.special_var? && arg_type.reference_like?
       end
-      arg_type
+      llvm_arg_type
     end
-    llvm_return_type = llvm_type(target_def.type)
+    llvm_return_type = llvm_return_type(target_def.type)
 
     if is_closure
       llvm_args_types.insert(0, LLVM::VoidPointer)
@@ -179,9 +205,9 @@ class Crystal::CodeGenVisitor
       offset = 0
     end
 
-    no_inline = setup_context_fun(mangled_name, target_def, llvm_args_types, llvm_return_type)
+    setup_context_fun(mangled_name, target_def, llvm_args_types, llvm_return_type)
 
-    if @single_module && !no_inline
+    if @single_module && !target_def.no_inline? && target_def.considered_external?
       context.fun.linkage = LLVM::Linkage::Internal
     end
 
@@ -192,7 +218,8 @@ class Crystal::CodeGenVisitor
       # Set 'byval' attribute
       # but don't set it if it's the "self" argument and it's a struct (while not in a closure).
       if arg.type.passed_by_value?
-        if (is_fun_literal && !is_closure) || (is_closure || !(i == 0 && self_type.struct?))
+        if ((is_fun_literal && !is_closure) || (is_closure || !(i == 0 && self_type.struct?))) &&
+           !arg.special_var? # special vars are never passed byval
           param.add_attribute LLVM::Attribute::ByVal
         end
       end
@@ -268,7 +295,7 @@ class Crystal::CodeGenVisitor
     args
   end
 
-  def abi_info(external : External)
+  def abi_info(external : Def)
     external.abi_info ||= begin
       llvm_args_types = external.args.map { |arg| llvm_c_type(arg.type) }
       llvm_return_type = llvm_c_return_type(external.type)
@@ -276,35 +303,24 @@ class Crystal::CodeGenVisitor
     end
   end
 
-  def abi_info(external : External, node : Call)
+  def abi_info(external : Def, node : Call)
     llvm_args_types = node.args.map { |arg| llvm_c_type(arg.type) }
     llvm_return_type = llvm_c_return_type(external.type)
     @abi.abi_info(llvm_args_types, llvm_return_type, !llvm_return_type.void?)
   end
 
-  def setup_context_fun(mangled_name, target_def, llvm_args_types, llvm_return_type)
-    context.fun = @llvm_mod.functions.add(
-      mangled_name,
-      llvm_args_types,
-      llvm_return_type,
-      target_def.varargs,
-    )
+  def setup_context_fun(mangled_name, target_def, llvm_args_types, llvm_return_type) : Nil
+    context.fun = @llvm_mod.functions.add(mangled_name, llvm_args_types, llvm_return_type, target_def.varargs?)
+
+    context.fun.add_attribute LLVM::Attribute::AlwaysInline if target_def.always_inline?
+    context.fun.add_attribute LLVM::Attribute::ReturnsTwice if target_def.returns_twice?
+    context.fun.add_attribute LLVM::Attribute::Naked if target_def.naked?
     context.fun.add_attribute LLVM::Attribute::NoReturn if target_def.no_returns?
 
-    no_inline = false
-    target_def.attributes.try &.each do |attribute|
-      case attribute.name
-      when "NoInline"
-        context.fun.add_attribute LLVM::Attribute::NoInline
-        context.fun.linkage = LLVM::Linkage::External
-        no_inline = true
-      when "AlwaysInline"
-        context.fun.add_attribute LLVM::Attribute::AlwaysInline
-      when "ReturnsTwice"
-        context.fun.add_attribute LLVM::Attribute::ReturnsTwice
-      end
+    if target_def.no_inline?
+      context.fun.add_attribute LLVM::Attribute::NoInline
+      context.fun.linkage = LLVM::Linkage::External
     end
-    no_inline
   end
 
   def setup_closure_vars(closure_vars, context = self.context, closure_ptr = fun_literal_closure_ptr)
@@ -317,7 +333,7 @@ class Crystal::CodeGenVisitor
       end
 
       if (closure_parent_context = context.closure_parent_context) &&
-          (parent_vars = closure_parent_context.closure_vars)
+         (parent_vars = closure_parent_context.closure_vars)
         parent_closure_ptr = gep(closure_ptr, 0, closure_vars.size, "parent_ptr")
         setup_closure_vars(parent_vars, closure_parent_context, load(parent_closure_ptr, "parent"))
       elsif closure_self = context.closure_self
@@ -337,30 +353,41 @@ class Crystal::CodeGenVisitor
   def create_local_copy_of_fun_args(target_def, self_type, args, is_fun_literal, is_closure)
     offset = is_closure ? 1 : 0
 
+    abi_info = target_def.abi_info
+    sret = abi_info && sret?(abi_info)
+    offset += 1 if sret
+
     target_def_vars = target_def.vars
     args.each_with_index do |arg, i|
       param = context.fun.params[i + offset]
       if !is_fun_literal && (i == 0 && self_type.passed_as_self?)
         # here self is already in context.vars
       else
-        create_local_copy_of_arg(target_def_vars, arg, param)
+        create_local_copy_of_arg(target_def, target_def_vars, arg, param)
       end
     end
   end
 
-  def create_local_copy_of_block_args(target_def, self_type, call_args)
+  def create_local_copy_of_block_self(self_type, call_args)
     args_base_index = 0
     if self_type.passed_as_self?
       context.vars["self"] = LLVMVar.new(call_args[0], self_type, true)
       args_base_index = 1
     end
+    args_base_index
+  end
 
+  def create_local_copy_of_block_args(target_def, self_type, call_args, args_base_index)
     target_def.args.each_with_index do |arg, i|
-      create_local_copy_of_arg(target_def.vars, arg, call_args[args_base_index + i])
+      create_local_copy_of_arg(target_def, target_def.vars, arg, call_args[args_base_index + i])
     end
   end
 
-  def create_local_copy_of_arg(target_def_vars, arg, value)
+  def create_local_copy_of_arg(target_def, target_def_vars, arg, value)
+    # An argument name can be "_" in the case of a captured block,
+    # and we must ignore these
+    return if arg.name == "_"
+
     target_def_var = target_def_vars.try &.[arg.name]
 
     var_type = (target_def_var || arg).type
@@ -369,15 +396,25 @@ class Crystal::CodeGenVisitor
     if closure_var = context.vars[arg.name]?
       pointer = closure_var.pointer
     else
-      # We don't need to create a copy of the argument if it's never
-      # assigned a value inside the function.
-      needs_copy = target_def_var.try &.assigned_to
-      if needs_copy && !arg.special_var?
+      # If it's an extern struct on a def that must be codegened with C ABI
+      # compatibility, and it's not passed byval, we must cast the value
+      if target_def.considered_external? && arg.type.extern? && !value.attributes.by_val?
         pointer = alloca(llvm_type(var_type), arg.name)
+        casted_pointer = bit_cast pointer, value.type.pointer
+        store value, casted_pointer
         context.vars[arg.name] = LLVMVar.new(pointer, var_type)
-      else
-        context.vars[arg.name] = LLVMVar.new(value, var_type, true)
         return
+      else
+        # We don't need to create a copy of the argument if it's never
+        # assigned a value inside the function.
+        needs_copy = target_def_var.try &.assigned_to?
+        if needs_copy && !arg.special_var?
+          pointer = alloca(llvm_type(var_type), arg.name)
+          context.vars[arg.name] = LLVMVar.new(pointer, var_type)
+        else
+          context.vars[arg.name] = LLVMVar.new(value, var_type, true)
+          return
+        end
       end
     end
 
@@ -398,6 +435,7 @@ class Crystal::CodeGenVisitor
 
       @modules[type_name] ||= begin
         llvm_mod = LLVM::Module.new(type_name)
+        llvm_mod.data_layout = self.data_layout
         define_symbol_table llvm_mod
         llvm_mod
       end

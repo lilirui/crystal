@@ -18,6 +18,10 @@ describe "Code gen: primitives" do
     run("'a'").to_i.should eq('a'.ord)
   end
 
+  it "codegens char ord" do
+    run("'a'.ord").to_i.should eq('a'.ord)
+  end
+
   it "codegens f32" do
     run("2.5_f32").to_f32.should eq(2.5_f32)
   end
@@ -75,7 +79,7 @@ describe "Code gen: primitives" do
     run("
 
       __LINE__
-      ").to_i.should eq(3)
+      ", inject_primitives: false).to_i.should eq(3)
   end
 
   it "codeges crystal_type_id with union type" do
@@ -144,5 +148,52 @@ describe "Code gen: primitives" do
 
       Test.foo + 1
       ))
+  end
+
+  it "allows redefining a primitive method" do
+    run(%(
+      struct Int32
+        def *(other : Int32)
+          42
+        end
+      end
+
+      1 * 2
+      )).to_i.should eq(42)
+  end
+
+  it "doesn't optimize away call whose obj is not passed as self (#2226)" do
+    run(%(
+      class Global
+        @@x = 0
+
+        def self.x=(@@x)
+        end
+
+        def self.x
+          @@x
+        end
+      end
+
+      def foo
+        Global.x = 2
+        3
+      end
+
+      foo.class.crystal_type_id
+
+      Global.x
+      )).to_i.should eq(2)
+  end
+
+  it "uses built-in llvm function that returns a tuple" do
+    run(%(
+      lib Intrinsics
+        fun sadd_i32_with_overlow = "llvm.sadd.with.overflow.i32"(a : Int32, b : Int32) : {Int32, Bool}
+      end
+
+      x, o = Intrinsics.sadd_i32_with_overlow(1, 2)
+      x
+      )).to_i.should eq(3)
   end
 end

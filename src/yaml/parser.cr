@@ -1,7 +1,12 @@
 class YAML::Parser
-  def initialize(content)
+  def initialize(content : String | IO)
     @pull_parser = PullParser.new(content)
     @anchors = {} of String => YAML::Type
+  end
+
+  def self.new(content)
+    parser = new(content)
+    yield parser ensure parser.close
   end
 
   def close
@@ -9,13 +14,13 @@ class YAML::Parser
   end
 
   def parse_all
-    documents = [] of YAML::Type
+    documents = [] of YAML::Any
     loop do
       case @pull_parser.read_next
       when EventKind::STREAM_END
         return documents
       when EventKind::DOCUMENT_START
-        documents << parse_document
+        documents << YAML::Any.new(parse_document)
       else
         unexpected_event
       end
@@ -23,14 +28,15 @@ class YAML::Parser
   end
 
   def parse
-    case @pull_parser.read_next
-    when EventKind::STREAM_END
-      nil
-    when EventKind::DOCUMENT_START
-      parse_document
-    else
-      unexpected_event
-    end
+    value = case @pull_parser.read_next
+            when EventKind::STREAM_END
+              nil
+            when EventKind::DOCUMENT_START
+              parse_document
+            else
+              unexpected_event
+            end
+    YAML::Any.new(value)
   end
 
   def parse_document
@@ -81,9 +87,14 @@ class YAML::Parser
         return mapping
       else
         key = parse_node
+        tag = @pull_parser.tag
         @pull_parser.read_next
         value = parse_node
-        mapping[key] = value
+        if key == "<<" && value.is_a?(Hash) && tag != "tag:yaml.org,2002:str"
+          mapping.merge!(value)
+        else
+          mapping[key] = value
+        end
       end
     end
   end
@@ -98,6 +109,6 @@ class YAML::Parser
   end
 
   private def raise(msg)
-    ::raise ParseException.new(msg, @pull_parser.line_number, @pull_parser.column_number)
+    ::raise ParseException.new(msg, @pull_parser.problem_line_number, @pull_parser.problem_column_number)
   end
 end

@@ -8,12 +8,16 @@ class Concurrent::Future(R)
     Canceled
   end
 
-  def initialize run_immediately = true, delay = 0 : Number, &@block : -> R
+  @value : R?
+  @error : Exception?
+  @delay : Float64
+
+  def initialize(run_immediately = true, delay = 0.0, &@block : -> R)
     @state = State::Idle
     @value = nil
     @error = nil
     @channel = Channel(Nil).new
-    @delay = delay
+    @delay = delay.to_f
     @cancel_msg = nil
 
     spawn_compute if run_immediately
@@ -52,7 +56,7 @@ class Concurrent::Future(R)
     @state == State::Idle
   end
 
-  def cancel msg = "Future canceled, you reached the [End of Time]"
+  def cancel(msg = "Future canceled, you reached the [End of Time]")
     return if @state >= State::Completed
     @state = State::Canceled
     @cancel_msg = msg
@@ -112,7 +116,6 @@ class Concurrent::Future(R)
   end
 end
 
-
 # Spawns a `Fiber` to compute *&block* in the background after *delay* has elapsed.
 # Access to get is synchronized between fibers.  *&block* is only called once.
 # May be canceled before *&block* is called by calling `cancel`.
@@ -121,10 +124,9 @@ end
 # long_operation
 # d.cancel
 # ```
-def delay(delay, &block : -> R)
+def delay(delay, &block : -> _)
   Concurrent::Future.new delay: delay, &block
 end
-
 
 # Spawns a `Fiber` to compute *&block* in the background.
 # Access to get is synchronized between fibers.  *&block* is only called once.
@@ -133,10 +135,9 @@ end
 # ... other actions ...
 # f.get #=> String
 # ```
-def future(&exp : -> R)
+def future(&exp : -> _)
   Concurrent::Future.new &exp
 end
-
 
 # Conditionally spawns a `Fiber` to run *&block* in the background.
 # Access to get is synchronized between fibers.  *&block* is only called once.
@@ -146,6 +147,6 @@ end
 # spawn { maybe_use_computation(l) }
 # spawn { maybe_use_computation(l) }
 # ```
-def lazy &block : -> R
+def lazy(&block : -> _)
   Concurrent::Future.new run_immediately: false, &block
 end

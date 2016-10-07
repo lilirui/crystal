@@ -1,14 +1,16 @@
+require "./node"
+
 struct XML::Attributes
   include Enumerable(Node)
 
-  def initialize(@node)
+  def initialize(@node : Node)
   end
 
   def empty?
     return true unless @node.element?
 
-    props = self.props()
-    props.nil?
+    props = self.props
+    props.null?
   end
 
   def [](index : Int)
@@ -38,8 +40,8 @@ struct XML::Attributes
   def each
     return unless @node.element?
 
-    props = self.props()
-    until props.nil?
+    props = self.props
+    until props.null?
       yield Node.new(props)
       props = props.value.next
     end

@@ -5,47 +5,37 @@
 # false # A Bool that is false
 # ```
 struct Bool
-  # Negates this boolean.
+  # Bitwise OR. Returns `true` if this bool or *other* is `true`, otherwise returns `false`.
   #
   # ```
-  # !true  #=> false
-  # !false #=> true
-  # ```
-  def !
-    self ? false : true
-  end
-
-  # Bitwise OR. Returns `true` if this bool or `other` is `true`, otherwise returns `false`.
-  #
-  # ```
-  # false | false #=> false
-  # false | true  #=> true
-  # true  | false #=> true
-  # true  | true  #=> true
+  # false | false # => false
+  # false | true  # => true
+  # true | false  # => true
+  # true | true   # => true
   # ```
   def |(other : Bool)
     self ? true : other
   end
 
-  # Bitwise AND. Returns `true` if this bool and `other` are `true`, otherwise returns `false`.
+  # Bitwise AND. Returns `true` if this bool and *other* are `true`, otherwise returns `false`.
   #
   # ```
-  # false & false #=> false
-  # false & true  #=> false
-  # true  & false #=> false
-  # true  & true  #=> true
+  # false & false # => false
+  # false & true  # => false
+  # true & false  # => false
+  # true & true   # => true
   # ```
   def &(other : Bool)
     self ? other : false
   end
 
-  # Exclusive Or. Returns `true` if this bool is different from `other`, otherwise returns `false`.
+  # Exclusive Or. Returns `true` if this bool is different from *other*, otherwise returns `false`.
   #
   # ```
-  # false ^ false #=> false
-  # false ^ true  #=> true
-  # true  ^ false #=> true
-  # true  ^ true  #=> false
+  # false ^ false # => false
+  # false ^ true  # => true
+  # true ^ false  # => true
+  # true ^ true   # => false
   # ```
   def ^(other : Bool)
     self != other
@@ -64,5 +54,9 @@ struct Bool
   # Appends `"true"` for `true` and `"false"` for `false` to the given IO.
   def to_s(io)
     io << to_s
+  end
+
+  def clone
+    self
   end
 end

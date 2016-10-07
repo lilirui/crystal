@@ -41,4 +41,30 @@ describe Tempfile do
       ENV["TMPDIR"] = old_tmpdir if old_tmpdir
     end
   end
+
+  it "is seekable" do
+    tempfile = Tempfile.new "foo"
+    tempfile.puts "Hello!"
+    tempfile.seek(0, IO::Seek::Set)
+    tempfile.tell.should eq(0)
+    tempfile.pos.should eq(0)
+    tempfile.gets.should eq("Hello!\n")
+    tempfile.pos = 0
+    tempfile.gets.should eq("Hello!\n")
+    tempfile.close
+  end
+
+  it "returns default directory for tempfiles" do
+    old_tmpdir = ENV["TMPDIR"]?
+    ENV.delete("TMPDIR")
+    Tempfile.dirname.should eq("/tmp")
+    ENV["TMPDIR"] = old_tmpdir if old_tmpdir
+  end
+
+  it "returns configure directory for tempfiles" do
+    old_tmpdir = ENV["TMPDIR"]?
+    ENV["TMPDIR"] = "/my/tmp"
+    Tempfile.dirname.should eq("/my/tmp")
+    ENV["TMPDIR"] = old_tmpdir if old_tmpdir
+  end
 end

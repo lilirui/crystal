@@ -76,12 +76,42 @@ describe "Number" do
       50.5.clamp(10.1..100.1).should eq(50.5)
     end
 
-   it "fails with an exclusive range" do
-     expect_raises(ArgumentError) do
-       range = Range.new(1, 2, exclusive: true)
-       5.clamp(range)
-     end
-   end
+    it "fails with an exclusive range" do
+      expect_raises(ArgumentError) do
+        range = Range.new(1, 2, exclusive: true)
+        5.clamp(range)
+      end
+    end
+  end
+
+  it "gives the absolute value" do
+    123.abs.should eq(123)
+    -123.abs.should eq(123)
+  end
+
+  it "gives the square of a value" do
+    2.abs2.should eq(4)
+    -2.abs2.should eq(4)
+    2.5.abs2.should eq(6.25)
+    -2.5.abs2.should eq(6.25)
+  end
+
+  it "gives the sign" do
+    123.sign.should eq(1)
+    -123.sign.should eq(-1)
+    0.sign.should eq(0)
+  end
+
+  it "divides and calculs the modulo" do
+    10.divmod(2).should eq({5, 0})
+    10.divmod(-2).should eq({-5, 0})
+    11.divmod(-2).should eq({-6, -1})
+  end
+
+  it "compare the numbers" do
+    10.<=>(10).should eq(0)
+    10.<=>(11).should eq(-1)
+    11.<=>(10).should eq(1)
   end
 
   it "creates an array with [] and some elements" do
@@ -97,15 +127,22 @@ describe "Number" do
     ary.should eq([1])
   end
 
-  it "can use methods from Comparable" do
-    5.between?(0, 9).should be_true
-    0.between?(5, 9).should be_false
+  it "creates a slice" do
+    slice = Int8.slice(1, 2, 300)
+    slice.should be_a(Slice(Int8))
+    slice.size.should eq(3)
+    slice[0].should eq(1)
+    slice[1].should eq(2)
+    slice[2].should eq(300.to_u8)
+  end
 
-    5_u64.between?(0_i8, 9_u16).should be_true
-    0_i8.between?(5_u32, 9_i64).should be_false
-
-    25641_i16.between?(594_i64, 487696874_u32).should be_true
-    594_i64.between?(25641_i16, 487696874_u32).should be_false
+  it "creates a static array" do
+    ary = Int8.static_array(1, 2, 300)
+    ary.should be_a(StaticArray(Int8, 3))
+    ary.size.should eq(3)
+    ary[0].should eq(1)
+    ary[1].should eq(2)
+    ary[2].should eq(300.to_u8)
   end
 
   it "steps from int to float" do

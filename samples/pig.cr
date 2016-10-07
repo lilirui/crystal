@@ -1,15 +1,14 @@
 # Translated from Go: http://golang.org/doc/codewalk/functions/
 
-Win = 100            # The winning score in a game of Pig
-GamesPerSeries = 10  # The number of games per series to simulate
+Win            = 100 # The winning score in a game of Pig
+GamesPerSeries =  10 # The number of games per series to simulate
 
 # A score includes scores accumulated in previous turns for each player,
 # as well as the points scored by the current player in this turn.
-record Score, player, opponent, this_turn
-
-# let the compiler infer the type of a Score
-# (oterwise you get a "can't infer block type" at the Array.new(Win) line)
-typeof(Score.new(0, 0, 0))
+record Score,
+  player : Int32,
+  opponent : Int32,
+  this_turn : Int32
 
 # roll returns the {result, turn_is_over} outcome of simulating a die roll.
 # If the roll value is 1, then this_turn score is abandoned, and the players'
@@ -59,9 +58,9 @@ end
 # roundRobin simulates a series of games between every pair of strategies.
 def round_robin(strategies)
   wins = Array.new(strategies.size, 0)
-  (0 ... strategies.size).each do |i|
-    (i + 1 ... strategies.size).each do |j|
-      (0 ... GamesPerSeries).each do |k|
+  (0...strategies.size).each do |i|
+    (i + 1...strategies.size).each do |j|
+      (0...GamesPerSeries).each do |k|
         winner = play strategies[i], strategies[j]
         if winner == 0
           wins[i] += 1

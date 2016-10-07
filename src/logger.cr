@@ -30,8 +30,10 @@
 #   log.fatal(err)
 # end
 # ```
-class Logger(T)
-  property :level, :progname, :formatter
+class Logger
+  property level : Severity
+  property progname : String
+  property formatter
 
   # A logger severity level
   enum Severity
@@ -55,65 +57,87 @@ class Logger(T)
 
   alias Formatter = String, Time, String, String, IO ->
 
-  # :nodoc:
-  DEFAULT_FORMATTER = Formatter.new do |severity, datetime, progname, message, io|
+  private DEFAULT_FORMATTER = Formatter.new do |severity, datetime, progname, message, io|
     io << severity[0] << ", [" << datetime << " #" << Process.pid << "] "
     io << severity.rjust(5) << " -- " << progname << ": " << message
   end
 
-  def initialize(@io : T)
+  # :nodoc:
+  record Message,
+    severity : Severity,
+    datetime : Time,
+    progname : String,
+    message : String
+
+  # Creates a new logger that will log to the given *io*.
+  # If *io* is `nil` then all log calls will be silently ignored.
+  def initialize(@io : IO?)
     @level = Severity::INFO
     @formatter = DEFAULT_FORMATTER
     @progname = ""
+    @closed = false
+    @mutex = Mutex.new
   end
 
-  def <<(message)
-    @io << message
-  end
-
+  # Calls the *close* method on the object passed to `initialize`
   def close
-    @io.close
+    return if @closed
+    return unless io = @io
+    @closed = true
+
+    @mutex.synchronize do
+      io.close
+    end
   end
 
-  macro log_level(name)
+  {% for name in Severity.constants %}
     {{name.id}} = Severity::{{name.id}}
 
+    # Returns `true` if the logger's current severity is lower or equal to `{{name.id}}`.
     def {{name.id.downcase}}?
       level <= Severity::{{name.id}}
     end
 
+    # Logs *message* if the logger's current severity is lower or equal to `{{name.id}}`.
+    # *progname* overrides a default progname set in this logger.
     def {{name.id.downcase}}(message, progname = nil)
       log(Severity::{{name.id}}, message, progname)
     end
 
+    # Logs the message as returned from the given block if the logger's current severity
+    # is lower or equal to `{{name.id}}`. The block is not run if the severity is higher.
+    # *progname* overrides a default progname set in this logger.
     def {{name.id.downcase}}(progname = nil)
       log(Severity::{{name.id}}, progname) { yield }
     end
-  end
+  {% end %}
 
-  log_level UNKNOWN
-  log_level FATAL
-  log_level ERROR
-  log_level WARN
-  log_level INFO
-  log_level DEBUG
-
+  # Logs *message* if *severity* is higher or equal with the logger's current
+  # severity. *progname* overrides a default progname set in this logger.
   def log(severity, message, progname = nil)
-    return if severity < level
-    format(severity, Time.now, progname || @progname, message, @io)
-    @io.puts
-    @io.flush
+    return if severity < level || !@io
+    write(severity, Time.now, progname || @progname, message)
   end
 
+  # Logs the message as returned from the given block if *severity*
+  # is higher or equal with the loggers current severity. The block is not run
+  # if *severity* is lower. *progname* overrides a default progname set in this logger.
   def log(severity, progname = nil)
-    return if severity < level
-    format(severity, Time.now, progname || @progname, yield, @io)
-    @io.puts
-    @io.flush
+    return if severity < level || !@io
+    write(severity, Time.now, progname || @progname, yield)
   end
 
-  def format(severity, datetime, progname, message, io)
+  private def write(severity, datetime, progname, message)
+    io = @io
+    return unless io
+
     label = severity == Severity::UNKNOWN ? "ANY" : severity.to_s
-    formatter.call(label, Time.now, progname.to_s, message.to_s, io)
+    progname_to_s = progname.to_s
+    message_to_s = message.to_s
+    @mutex.synchronize do
+      formatter.call(label, datetime, progname_to_s, message_to_s, io)
+      io.puts
+      io.flush
+    end
   end
 end

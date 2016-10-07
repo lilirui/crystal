@@ -1,9 +1,4 @@
-lib LibC
-  $environ : Char**
-  fun getenv(name : Char*) : Char*?
-  fun setenv(name : Char*, value : Char*, overwrite : Int) : Int
-  fun unsetenv(name : Char*) : Int
-end
+require "c/stdlib"
 
 # `ENV` is a hash-like accessor for environment variables.
 #
@@ -17,74 +12,80 @@ end
 #     # Later use that env var.
 #     puts ENV["PORT"].to_i
 module ENV
+  extend Enumerable({String, String})
+
   # Retrieves the value for environment variable named `key` as a `String`.
   # Raises `KeyError` if the named variable does not exist.
-  def self.[](key : String)
+  def self.[](key : String) : String
     fetch(key)
   end
 
-  # Retrieves the value for environment variable named `key` as a `String?`.
+  # Retrieves the value for environment variable named *key* as a `String?`.
   # Returns `nil` if the named variable does not exist.
-  def self.[]?(key : String)
+  def self.[]?(key : String) : String?
     fetch(key, nil)
   end
 
-  # Sets the value for environment variable named `key` as `value`.
+  # Sets the value for environment variable named *key* as *value*.
   # Overwrites existing environment variable if already present.
   # Returns `value` if successful, otherwise raises an exception.
-  def self.[]=(key : String, value : String)
-    if LibC.setenv(key, value, 1) == 0
-      value
+  # If `value` is nil, the environment variable is deleted.
+  def self.[]=(key : String, value : String?)
+    if value
+      if LibC.setenv(key, value, 1) != 0
+        raise Errno.new("Error setting environment variable \"#{key}\"")
+      end
     else
-      raise Errno.new("Error setting environment variable \"#{key}\"")
+      LibC.unsetenv(key)
     end
+    value
   end
 
-  # Returns `true` if the environment variable named `key` exists and `false`
+  # Returns `true` if the environment variable named *key* exists and `false`
   # if it doesn't.
-  def self.has_key?(key : String)
+  def self.has_key?(key : String) : Bool
     !!LibC.getenv(key)
   end
 
-  # Retrieve a value corresponding to a key. Raises a KeyError exception if the
+  # Retrieves a value corresponding to the given *key*. Raises a `KeyError` exception if the
   # key does not exist.
-  def self.fetch(key)
+  def self.fetch(key) : String
     fetch(key) do
       raise KeyError.new "Missing ENV key: #{key.inspect}"
     end
   end
 
-  # Retrieve a value corresponding to a key. Return the second argument's value
+  # Retrieves a value corresponding to the given *key*. Return the second argument's value
   # if the key does not exist.
   def self.fetch(key, default)
     fetch(key) { default }
   end
 
-  # Retrieve a value corresponding to a key. Return the value of the block if
+  # Retrieves a value corresponding to a key. Return the value of the block if
   # the key does not exist.
-  def self.fetch(key : String, &block : String -> String?|NoReturn)
+  def self.fetch(key : String, &block : String -> String? | NoReturn)
     value = LibC.getenv key
     return String.new(value) if value
     yield(key)
   end
 
-  # Returns an array of all the environment variable names
-  def self.keys
+  # Returns an array of all the environment variable names.
+  def self.keys : Array(String)
     keys = [] of String
-    each {|key, v| keys << key}
+    each { |key, v| keys << key }
     keys
   end
 
-  # Returns an array of all the environment variable values
-  def self.values
+  # Returns an array of all the environment variable values.
+  def self.values : Array(String)
     values = [] of String
-    each {|k, value| values << value}
+    each { |k, value| values << value }
     values
   end
 
-  # Removes the environment variable named `key`. Returns the previous value if
+  # Removes the environment variable named *key*. Returns the previous value if
   # the environment variable existed, otherwise returns `nil`.
-  def self.delete(key : String)
+  def self.delete(key : String) : String?
     if value = self[key]?
       LibC.unsetenv(key)
       value
@@ -107,7 +108,7 @@ module ENV
         key_value = String.new(environ_value).split('=', 2)
         key = key_value[0]
         value = key_value[1]? || ""
-        yield key, value
+        yield({key, value})
         environ_ptr += 1
       else
         break
@@ -119,7 +120,7 @@ module ENV
     keys.each { |k| delete k }
   end
 
-  # Writes the contents of the environment to `io`.
+  # Writes the contents of the environment to *io*.
   def self.inspect(io)
     io << "{"
     found_one = false

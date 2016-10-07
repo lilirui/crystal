@@ -1,27 +1,19 @@
 module HTTP
   # :nodoc:
-  abstract class Content
+  module Content
     include IO
 
     def close
-      buffer :: UInt8[1024]
+      buffer = uninitialized UInt8[1024]
       while read(buffer.to_slice) > 0
       end
+      super
     end
   end
 
   # :nodoc:
-  class FixedLengthContent < Content
-    def initialize(@io, size)
-      @remaining = size
-    end
-
-    def read(slice : Slice(UInt8))
-      count = Math.min(slice.size, @remaining)
-      bytes_read = @io.read slice[0, count]
-      @remaining -= bytes_read
-      bytes_read
-    end
+  class FixedLengthContent < IO::Sized
+    include Content
 
     def write(slice : Slice(UInt8))
       raise IO::Error.new "Can't write to FixedLengthContent"
@@ -29,8 +21,10 @@ module HTTP
   end
 
   # :nodoc:
-  class UnknownLengthContent < Content
-    def initialize(@io)
+  class UnknownLengthContent
+    include Content
+
+    def initialize(@io : IO)
     end
 
     def read(slice : Slice(UInt8))
@@ -43,22 +37,42 @@ module HTTP
   end
 
   # :nodoc:
-  class ChunkedContent < Content
-    def initialize(@io)
+  class ChunkedContent
+    include Content
+    @chunk_remaining : Int32
+
+    def initialize(@io : IO)
       @chunk_remaining = io.gets.not_nil!.to_i(16)
+      @read_chunk_start = false
+      check_last_chunk
     end
 
     def read(slice : Slice(UInt8))
       count = slice.size
-      return 0 if @chunk_remaining == 0 || count == 0
+      return 0 if count == 0
+
+      # Check if the last read consumed a chunk and we
+      # need to start consuming the next one.
+      if @read_chunk_start
+        read_chunk_end
+        @chunk_remaining = @io.gets.not_nil!.to_i(16)
+        check_last_chunk
+        @read_chunk_start = false
+      end
+
+      return 0 if @chunk_remaining == 0
 
       to_read = Math.min(slice.size, @chunk_remaining)
 
       bytes_read = @io.read slice[0, to_read]
       @chunk_remaining -= bytes_read
+
+      # As soon as we finish reading a chunk we return,
+      # in case the next content is delayed (see #3270).
+      # We set @read_chunk_start to true so we read the next
+      # chunk start on the next call to `read`.
       if @chunk_remaining == 0
-        read_chunk_end
-        @chunk_remaining = @io.gets.not_nil!.to_i(16)
+        @read_chunk_start = true
       end
 
       bytes_read
@@ -66,8 +80,12 @@ module HTTP
 
     private def read_chunk_end
       # Read "\r\n"
-      buf :: UInt8[2]
-      @io.read_fully(buf.to_slice)
+      @io.skip(2)
+    end
+
+    private def check_last_chunk
+      # If we read "0\r\n", we need to read another "\r\n"
+      read_chunk_end if @chunk_remaining == 0
     end
 
     def write(slice : Slice(UInt8))

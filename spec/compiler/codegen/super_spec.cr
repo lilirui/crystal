@@ -196,7 +196,7 @@ describe "Codegen: super" do
   it "codegens super inside closure" do
     run(%(
       class Foo
-        def initialize(@x)
+        def initialize(@x : Int32)
         end
 
         def foo
@@ -218,7 +218,7 @@ describe "Codegen: super" do
   it "codegens super inside closure forwarding args" do
     run(%(
       class Foo
-        def initialize(@x)
+        def initialize(@x : Int32)
         end
 
         def foo(z)
@@ -328,14 +328,23 @@ describe "Codegen: super" do
 
   it "doesn't invoke super twice in inherited generic types (#942)" do
     run(%(
-      $a = 0
+      class Global
+        @@x = 0
+
+        def self.x=(@@x)
+        end
+
+        def self.x
+          @@x
+        end
+      end
 
       abstract class Foo
       end
 
       class Bar(T) < Foo
         def initialize
-            $a += 1
+            Global.x += 1
             super
         end
       end
@@ -345,7 +354,7 @@ describe "Codegen: super" do
 
       Baz(Int8).new
 
-      $a
+      Global.x
       )).to_i.should eq(1)
   end
 
@@ -354,17 +363,26 @@ describe "Codegen: super" do
     run(%(
       require "prelude"
 
-      $a = 0
+      class Global
+        @@x = 0
+
+        def self.x=(@@x)
+        end
+
+        def self.x
+          @@x
+        end
+      end
 
       class Base
         def self.foo
-          $a += 1
+          Global.x += 1
         end
       end
 
       class One < Base
         def self.foo
-          $a += 3
+          Global.x += 3
           super
         end
       end
@@ -372,5 +390,54 @@ describe "Codegen: super" do
       Base.foo
       One.foo
       )).to_i.should eq(5)
+  end
+
+  it "calls super with dispatch (#2318)" do
+    run(%(
+      class Foo
+        def foo(x : Int32)
+          x
+        end
+
+        def foo(x : Float64)
+          x
+        end
+      end
+
+      class Bar < Foo
+        def foo(obj)
+          super(obj)
+        end
+      end
+
+      z = Bar.new.foo(3 || 2.5)
+      z.to_i
+      )).to_i.should eq(3)
+  end
+
+  it "calls super from virtual metaclass type (#2841)" do
+    run(%(
+      require "prelude"
+
+      abstract class Foo
+        def self.bar(x : Bool)
+          x
+        end
+      end
+
+      class Bar < Foo
+        def self.bar(x : Bool)
+          super
+        end
+      end
+
+      class Baz < Foo
+        def self.bar(x : Bool)
+          super
+        end
+      end
+
+      (Foo || Bar).bar(true)
+      ))
   end
 end

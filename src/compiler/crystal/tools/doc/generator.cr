@@ -1,12 +1,15 @@
 class Crystal::Doc::Generator
-  getter program
+  getter program : Program
 
-  def initialize(@program, @included_dirs, @dir = "./doc")
+  @base_dir : String
+  @is_crystal_repo : Bool
+
+  def initialize(@program : Program, @included_dirs : Array(String), @dir = "./doc")
     @base_dir = `pwd`.chomp
     @types = {} of Crystal::Type => Doc::Type
-    @is_crystal_repository = false
     @repo_name = ""
     compute_repository
+    @is_crystal_repo = @repo_name == "github.com/crystal-lang/crystal"
   end
 
   def run
@@ -20,6 +23,10 @@ class Crystal::Doc::Generator
     end
 
     generate_docs program_type, types
+  end
+
+  def program_type
+    type(@program)
   end
 
   def generate_docs(program_type, types)
@@ -45,15 +52,15 @@ class Crystal::Doc::Generator
       Markdown.parse body, MarkdownDocRenderer.new(program_type, io)
     end
 
-    write_template "#{@dir}/index.html", MainTemplate.new(body, types, repository_name)
+    File.write "#{@dir}/index.html", MainTemplate.new(body, types, repository_name)
   end
 
   def copy_files
     Dir.mkdir_p "#{@dir}/css"
     Dir.mkdir_p "#{@dir}/js"
 
-    write_template "#{@dir}/css/style.css", StyleTemplate.new
-    write_template "#{@dir}/js/doc.js", JsTypeTemplate.new
+    File.write "#{@dir}/css/style.css", StyleTemplate.new
+    File.write "#{@dir}/js/doc.js", JsTypeTemplate.new
   end
 
   def generate_types_docs(types, dir, all_types)
@@ -64,7 +71,7 @@ class Crystal::Doc::Generator
         filename = "#{dir}/#{type.name}.html"
       end
 
-      write_template filename, TypeTemplate.new(type, all_types)
+      File.write filename, TypeTemplate.new(type, all_types)
 
       next if type.program?
 
@@ -77,28 +84,16 @@ class Crystal::Doc::Generator
     end
   end
 
-  def write_template(filename, template)
-    File.open(filename, "w") do |file|
-      template.to_s file
-    end
-  end
-
   def must_include?(type : Doc::Type)
     must_include? type.type
   end
 
-  def must_include?(type : Crystal::IncludedGenericModule)
-    must_include? type.module
-  end
-
-  def must_include?(type : Crystal::InheritedGenericClass)
-    must_include? type.extended_class
-  end
-
   def must_include?(type : Crystal::Type)
+    return false if type.private?
     return false if nodoc?(type)
+    return true if crystal_builtin?(type)
 
-    type.locations.any? do |type_location|
+    type.locations.try &.any? do |type_location|
       must_include? type_location
     end
   end
@@ -108,10 +103,6 @@ class Crystal::Doc::Generator
   end
 
   def must_include?(a_def : Crystal::Def)
-    if @is_crystal_repository && (body = a_def.body).is_a?(Crystal::Primitive)
-      doc = Primitive.doc(a_def, body)
-      return !nodoc?(doc)
-    end
     return false if nodoc?(a_def)
 
     must_include? a_def.location
@@ -150,6 +141,24 @@ class Crystal::Doc::Generator
     nodoc? obj.doc.try &.strip
   end
 
+  def crystal_builtin?(type)
+    return false unless @is_crystal_repo
+    return false unless type.is_a?(Const) || type.is_a?(NonGenericModuleType)
+
+    crystal_type = @program.types["Crystal"]
+    return true if type == crystal_type
+
+    return false unless type.is_a?(Const)
+    return false unless type.namespace == crystal_type
+
+    {"BUILD_COMMIT", "BUILD_DATE", "CACHE_DIR", "DEFAULT_PATH",
+      "DESCRIPTION", "PATH", "VERSION"}.each do |name|
+      return true if type == crystal_type.types[name]?
+    end
+
+    false
+  end
+
   def type(type)
     @types[type] ||= Type.new(self, type)
   end
@@ -165,7 +174,7 @@ class Crystal::Doc::Generator
   def collect_subtypes(parent)
     types = [] of Type
 
-    parent.types.each_value do |type|
+    parent.types?.try &.each_value do |type|
       case type
       when Const, LibType
         next
@@ -180,7 +189,7 @@ class Crystal::Doc::Generator
   def collect_constants(parent)
     types = [] of Constant
 
-    parent.type.types.each_value do |type|
+    parent.type.types?.try &.each_value do |type|
       if type.is_a?(Const) && must_include? type
         types << Constant.new(self, parent, type)
       end
@@ -203,7 +212,7 @@ class Crystal::Doc::Generator
 
     dot_index = line =~ /\.($|\s)/
     if dot_index
-      line = line[0 .. dot_index]
+      line = line[0..dot_index]
     end
 
     doc context, line
@@ -234,7 +243,7 @@ class Crystal::Doc::Generator
 
   def compute_repository
     remotes = `git remote -v`
-    return unless  $?.success?
+    return unless $?.success?
 
     github_remote_pattern = /github\.com(?:\:|\/)((?:\w|-|_)+)\/((?:\w|-|_|\.)+)/
     github_remotes = remotes.lines.select &.match(github_remote_pattern)
@@ -247,8 +256,6 @@ class Crystal::Doc::Generator
 
     @repository = "https://github.com/#{user}/#{repo}/blob/#{rev}"
     @repo_name = "github.com/#{user}/#{repo}"
-
-    @is_crystal_repository ||= (user == "manastech" && repo == "crystal")
   end
 
   def source_link(node)
@@ -283,10 +290,10 @@ class Crystal::Doc::Generator
     filename = location.filename
     return unless filename.is_a?(String)
     return unless filename.starts_with? @base_dir
-    filename[@base_dir.size .. -1]
+    filename[@base_dir.size..-1]
   end
 
-  record RelativeLocation, filename, url
+  record RelativeLocation, filename : String, line_number : Int32, url : String?
   SRC_SEP = "src#{File::SEPARATOR}"
 
   def relative_locations(type)
@@ -301,10 +308,10 @@ class Crystal::Doc::Generator
 
       url = "#{repository}#{filename}" if repository
 
-      filename = filename[1 .. -1] if filename.starts_with? File::SEPARATOR
-      filename = filename[4 .. -1] if filename.starts_with? SRC_SEP
+      filename = filename[1..-1] if filename.starts_with? File::SEPARATOR
+      filename = filename[4..-1] if filename.starts_with? SRC_SEP
 
-      locations << RelativeLocation.new(filename, url)
+      locations << RelativeLocation.new(filename, location.line_number, url)
     end
     locations
   end

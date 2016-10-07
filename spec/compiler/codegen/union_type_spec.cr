@@ -32,6 +32,8 @@ describe "Code gen: union type" do
   it "codegens union type for instance var" do
     run("
       class Foo
+        @value : Int32 | Float32
+
         def initialize(value)
           @value = value
         end
@@ -76,6 +78,8 @@ describe "Code gen: union type" do
       end
 
       class Foo
+        @x : Int32 | Char | Nil
+
         def foo(x)
           @x = x
           @x = @x || 1
@@ -176,15 +180,27 @@ describe "Code gen: union type" do
   end
 
   it "codegens union to_s" do
-    run(%(
+    str = run(%(
       require "prelude"
 
-      def foo(x : T)
+      def foo(x : T) forall T
         T.to_s
       end
 
       a = 1 || 1.5
       foo(a)
-      )).to_string.should eq("(Int32 | Float64)")
+      )).to_string
+    (str == "(Int32 | Float64)" || str == "(Float64 | Int32)").should be_true
+  end
+
+  it "provides T as a tuple literal" do
+    run(%(
+      struct Union
+        def self.foo
+          {{ T.class_name }}
+        end
+      end
+      Union(Nil, Int32).foo
+      )).to_string.should eq("TupleLiteral")
   end
 end

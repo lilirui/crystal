@@ -127,8 +127,10 @@ describe "Code gen: macro" do
         1
       end
 
-      macro def foo : Int32
-        bar_{{ "baz".id }}
+      def foo : Int32
+        {% begin %}
+          bar_{{ "baz".id }}
+        {% end %}
       end
 
       foo
@@ -148,10 +150,10 @@ describe "Code gen: macro" do
   it "expands def macro with @type.instance_vars" do
     run(%(
       class Foo
-        def initialize(@x)
+        def initialize(@x : Int32)
         end
 
-        macro def to_s : String
+        def to_s : String
           {{ @type.instance_vars.first.stringify }}
         end
       end
@@ -164,18 +166,18 @@ describe "Code gen: macro" do
   it "expands def macro with @type.instance_vars with subclass" do
     run(%(
       class Reference
-        macro def to_s : String
+        def to_s : String
           {{ @type.instance_vars.last.stringify }}
         end
       end
 
       class Foo
-        def initialize(@x)
+        def initialize(@x : Int32)
         end
       end
 
       class Bar < Foo
-        def initialize(@x, @y)
+        def initialize(@x : Int32, @y : Int32)
         end
       end
 
@@ -186,18 +188,18 @@ describe "Code gen: macro" do
   it "expands def macro with @type.instance_vars with virtual" do
     run(%(
       class Reference
-        macro def to_s : String
+        def to_s : String
           {{ @type.instance_vars.last.stringify }}
         end
       end
 
       class Foo
-        def initialize(@x)
+        def initialize(@x : Int32)
         end
       end
 
       class Bar < Foo
-        def initialize(@x, @y)
+        def initialize(@x : Int32, @y : Int32)
         end
       end
 
@@ -208,10 +210,10 @@ describe "Code gen: macro" do
   it "expands def macro with @type.name" do
     run(%(
       class Foo
-        def initialize(@x)
+        def initialize(@x : Int32)
         end
 
-        macro def to_s : String
+        def to_s : String
           {{@type.name.stringify}}
         end
       end
@@ -240,7 +242,7 @@ describe "Code gen: macro" do
   it "expands def macro with @type.name with virtual" do
     run(%(
       class Reference
-        macro def to_s : String
+        def to_s : String
           {{ @type.name.stringify }}
         end
       end
@@ -258,7 +260,7 @@ describe "Code gen: macro" do
   it "expands def macro with @type.name with virtual (2)" do
     run(%(
       class Reference
-        macro def to_s : String
+        def to_s : String
           {{ @type.name.stringify }}
         end
       end
@@ -276,7 +278,7 @@ describe "Code gen: macro" do
   it "allows overriding macro definition when redefining base class" do
     run(%(
       class Foo
-        macro def inspect : String
+        def inspect : String
           {{@type.name.stringify}}
         end
       end
@@ -333,6 +335,8 @@ describe "Code gen: macro" do
       end
 
       class Foo
+        @name : Int32?
+
         macro def foo : Int32
           name = 1
           @name = name
@@ -346,7 +350,7 @@ describe "Code gen: macro" do
   it "expands @type.name in virtual metaclass (1)" do
     run(%(
       class Class
-        macro def to_s : String
+        def to_s : String
           {{ @type.name.stringify }}
         end
       end
@@ -367,7 +371,7 @@ describe "Code gen: macro" do
   it "expands @type.name in virtual metaclass (2)" do
     run(%(
       class Class
-        macro def to_s : String
+        def to_s : String
           {{ @type.name.stringify }}
         end
       end
@@ -428,21 +432,24 @@ describe "Code gen: macro" do
 
   it "can use constants" do
     run(%(
-      A = 1
-      {{ A }}
+      CONST = 1
+      {{ CONST }}
       )).to_i.should eq(1)
   end
 
   it "can refer to types" do
     run(%(
       class Foo
-        def initialize(@x, @y)
+        def initialize(@x : Int32, @y : Int32)
         end
+
+        macro def foo : String
+          {{ Foo.instance_vars.last.name.stringify }}
+        end
+
       end
 
-      Foo.new(1, 2)
-
-      {{ Foo.instance_vars.last.name.stringify }}
+      Foo.new(1, 2).foo
       )).to_string.should eq("y")
   end
 
@@ -464,56 +471,6 @@ describe "Code gen: macro" do
 
       foo bar, 1, 1, 1
       )).to_i.should eq(3)
-  end
-
-  it "runs macro with arg and splat in first position (1)" do
-    run(%(
-      macro foo(*args, name)
-        {{args.size}}
-      end
-
-      foo 1, 1, 1, bar
-      )).to_i.should eq(3)
-  end
-
-  it "runs macro with arg and splat in first position (2)" do
-    run(%(
-      macro foo(*args, name)
-        {{name}}
-      end
-
-      foo 1, 1, 1, "hello"
-      )).to_string.should eq("hello")
-  end
-
-  it "runs macro with arg and splat in the middle (1)" do
-    run(%(
-      macro foo(foo, *args, name)
-        {{args.size}}
-      end
-
-      foo x, 1, 1, 1, bar
-      )).to_i.should eq(3)
-  end
-
-  it "runs macro with arg and splat in the middle (2)" do
-    run(%(
-      macro foo(foo, *args, name)
-        {{foo}}
-      end
-
-      foo "yellow", 1, 1, 1, bar
-      )).to_string.should eq("yellow")
-  end
-
-  it "runs macro with arg and splat in the middle (3)" do
-    run(%(
-      macro foo(foo, *args, name)
-        {{name}}
-      end
-
-      foo "yellow", 1, 1, 1, "cool"
-      )).to_string.should eq("cool")
   end
 
   it "expands macro that yields" do
@@ -553,7 +510,7 @@ describe "Code gen: macro" do
   it "can refer to @type" do
     run(%(
       class Foo
-        macro def foo : String
+        def foo : String
           {{@type.name.stringify}}
         end
       end
@@ -590,44 +547,56 @@ describe "Code gen: macro" do
           @x = 1; @x = 1.1
         end
         def foo
-          {{ @type.instance_vars.first.type.union_types.map &.name }}.join("-")
+          {{ @type.instance_vars.first.type.union_types.map(&.name).sort }}.join("-")
         end
       end
       Foo.new.foo
-    )).to_string.should eq("Int32-Float64")
+    )).to_string.should eq("Float64-Int32")
   end
 
-  it "can access type parameters" do
+  it "can access type variables" do
     run(%(
       class Foo(T)
         def foo
-          {{ @type.type_params.first.name.stringify }}
+          {{ @type.type_vars.first.name.stringify }}
         end
       end
       Foo(Int32).new.foo
     )).to_string.should eq("Int32")
   end
 
-  it "can acccess type parameters that are not types" do
+  it "can acccess type variables that are not types" do
     run(%(
       class Foo(T)
         def foo
-          {{ @type.type_params.first.is_a?(NumberLiteral) }}
+          {{ @type.type_vars.first.is_a?(NumberLiteral) }}
         end
       end
       Foo(1).new.foo
     )).to_b.should eq(true)
   end
 
-  it "can acccess type parameters of a tuple" do
+  it "can acccess type variables of a tuple" do
     run(%(
       struct Tuple
         def foo
-          {{ @type.type_params.first.name.stringify }}
+          {{ @type.type_vars.first.name.stringify }}
         end
       end
       {1, 2, 3}.foo
     )).to_string.should eq("Int32")
+  end
+
+  it "can access type variables of a generic type" do
+    run(%(
+      require "prelude"
+      class Foo(T, K)
+        def self.foo : String
+          {{ @type.type_vars.map(&.stringify) }}.join("-")
+        end
+      end
+      Foo.foo
+    )).to_string.should eq("T-K")
   end
 
   it "receives &block" do
@@ -659,7 +628,7 @@ describe "Code gen: macro" do
   it "gets correct class name when there are classes in the middle" do
     run(%(
       class Foo
-        macro def class_desc : String
+        def class_desc : String
           {{@type.name.stringify}}
         end
       end
@@ -700,7 +669,7 @@ describe "Code gen: macro" do
       ))
   end
 
-  it "executs subclasses" do
+  it "executes subclasses" do
     run(%(
       require "prelude"
 
@@ -721,7 +690,7 @@ describe "Code gen: macro" do
       )).to_string.should eq("Bar-Baz")
   end
 
-  it "executs all_subclasses" do
+  it "executes all_subclasses" do
     run(%(
       require "prelude"
 
@@ -807,7 +776,7 @@ describe "Code gen: macro" do
           1
         end
 
-        macro def first_method_name : String
+        def first_method_name : String
           {{ @type.methods.map(&.name.stringify).first }}
         end
       end
@@ -819,55 +788,68 @@ describe "Code gen: macro" do
   it "copies base macro def to sub-subtype even after it was copied to a subtype (#448)" do
     run(%(
       class Object
-        macro def class_name : String
+        def class_name : String
           {{@type.name.stringify}}
         end
       end
 
-      class A
-        @@children = Pointer(A).malloc(1_u64)
+      class Foo
+        @@children : Pointer(Foo)
+        @@children = Pointer(Foo).malloc(1_u64)
 
         def self.children
           @@children
         end
       end
 
-      A.children.value = A.new
-      A.children.value.class_name
+      Foo.children.value = Foo.new
+      Foo.children.value.class_name
 
-      class B < A; end
+      class Bar < Foo; end
 
-      A.children.value = B.new
-      A.children.value.class_name
+      Foo.children.value = Bar.new
+      Foo.children.value.class_name
 
-      class C < B; end
-      A.children.value = C.new
-      A.children.value.class_name
-      )).to_string.should eq("C")
+      class Baz < Bar; end
+      Foo.children.value = Baz.new
+      Foo.children.value.class_name
+      )).to_string.should eq("Baz")
   end
 
   it "recalculates method when virtual metaclass type is added" do
     run(%(
       require "prelude"
 
-      $x = [] of String
+      class Global
+        @@x = [] of String
+        @@runnables = [] of Runnable.class
+
+        def self.x=(@@x)
+        end
+
+        def self.x
+          @@x
+        end
+
+        def self.runnables
+          @@runnables
+        end
+      end
 
       def run
-        $runnables.each &.run
+        Global.runnables.each &.run
       end
 
       class Runnable
       end
-
-      $runnables = [] of Runnable.class
 
       class Runnable
         macro inherited
-          $runnables << self
+          Global.runnables << self
         end
 
-        macro def self.run : Nil
-          $x << {{@type.name.stringify}}
+        def self.run : Nil
+          Global.x << {{@type.name.stringify}}
           nil
         end
       end
@@ -876,13 +858,13 @@ describe "Code gen: macro" do
       end
 
       run
-      $x.clear
+      Global.x.clear
 
       class RunnableTest < Test
       end
 
       run
-      $x.join(", ")
+      Global.x.join(", ")
       )).to_string.should eq("Test, RunnableTest")
   end
 
@@ -899,7 +881,7 @@ describe "Code gen: macro" do
           bar
         end
 
-        macro def bar : String
+        def bar : String
           {{@type.name.stringify}}
         end
       end
@@ -1001,7 +983,7 @@ describe "Code gen: macro" do
       )).to_i.should eq(6)
   end
 
-  it "codegens macro def with default arg (similar to #496)"  do
+  it "codegens macro def with default arg (similar to #496)" do
     run(%(
       class Foo
         macro def bar(foo = 1) : Int32
@@ -1054,8 +1036,8 @@ describe "Code gen: macro" do
         nil
       end
 
-      me
-      )).to_i.should eq(123)
+      me || 0
+      ), inject_primitives: false).to_i.should eq(123)
   end
 
   it "passes #826" do
@@ -1081,10 +1063,10 @@ describe "Code gen: macro" do
       end
 
       foo do
-        X = 123
+        CONST = 123
       end
 
-      X
+      CONST
       )).to_i.should eq(123)
   end
 
@@ -1219,11 +1201,269 @@ describe "Code gen: macro" do
 
   it "can access free variables" do
     run(%(
-      def foo(x : T)
+      def foo(x : T) forall T
         {{ T.stringify }}
       end
 
       foo(1)
       )).to_string.should eq("Int32")
+  end
+
+  it "types macro expansion bug (#1734)" do
+    run(%(
+      class Foo
+        macro def foo : Int32
+          1 || 2
+        end
+      end
+
+      class Bar < Foo
+      end
+
+      x = true ? Foo.new : Bar.new
+      x.foo
+      )).to_i.should eq(1)
+  end
+
+  it "expands Path with resolve method" do
+    run(%(
+      CONST = 1
+
+      macro id(path)
+        {{path.resolve}}
+      end
+
+      id(CONST)
+      )).to_i.should eq(1)
+  end
+
+  it "solves macro expression arguments before macro expansion (type)" do
+    run(%(
+      macro name(x)
+        {{x.name.stringify}}
+      end
+
+      name({{String}})
+      )).to_string.should eq("String")
+  end
+
+  it "solves macro expression arguments before macro expansion (constant)" do
+    run(%(
+      CONST = 1
+
+      macro id(x)
+        {{x}}
+      end
+
+      id({{CONST}})
+      )).to_i.should eq(1)
+  end
+
+  it "can use macro inside array literal" do
+    run(%(
+      require "prelude"
+
+      macro foo
+        42
+      end
+
+      ary = [foo]
+      ary[0]
+      )).to_i.should eq(42)
+  end
+
+  it "can use macro inside hash literal" do
+    run(%(
+      require "prelude"
+
+      macro foo
+        42
+      end
+
+      hash = {foo => foo}
+      hash[foo]
+      )).to_i.should eq(42)
+  end
+
+  it "executes with named arguments for positional arg (1)" do
+    run(%(
+      macro foo(x)
+        {{x}} + 1
+      end
+
+      foo x: 2
+      )).to_i.should eq(3)
+  end
+
+  it "executes with named arguments for positional arg (2)" do
+    run(%(
+      macro foo(x, y)
+        {{x}} + {{y}} + 1
+      end
+
+      foo x: 2, y: 3
+      )).to_i.should eq(6)
+  end
+
+  it "executes with named arguments for positional arg (3)" do
+    run(%(
+      class String
+        def bytesize
+          @bytesize
+        end
+      end
+
+      macro foo(x, y)
+        {{x}} + {{y}}.bytesize + 1
+      end
+
+      foo y: "foo", x: 2
+      )).to_i.should eq(6)
+  end
+
+  it "stringifies type without virtual marker" do
+    run(%(
+      class Foo
+        def foo_m : Int32
+          {{ @type }}.foo
+        end
+
+        def self.foo
+          1
+        end
+      end
+
+      class Bar < Foo
+        def self.foo
+          2
+        end
+      end
+
+      (Bar.new || Foo.new).foo_m
+      )).to_i.should eq(2)
+  end
+
+  it "uses tuple T in method with free vars" do
+    run(%(
+      struct Tuple
+        def foo(x : U) forall U
+          {{T.size}}
+        end
+      end
+
+      {1, 3}.foo(1)
+      )).to_i.should eq(2)
+  end
+
+  it "implicitly marks method as macro def when using @type" do
+    run(%(
+      class Foo
+        def method
+          {{@type.stringify}}
+        end
+      end
+
+      class Bar < Foo
+      end
+
+      Bar.new.as(Foo).method
+      )).to_string.should eq("Bar")
+  end
+
+  it "doesn't replace %s in string (#2178)" do
+    run(%(
+      {% begin %}
+        "hello %s"
+      {% end %}
+      )).to_string.should eq("hello %s")
+  end
+
+  it "doesn't replace %q() (#2178)" do
+    run(%(
+      {% begin %}
+        %q(hello)
+      {% end %}
+      )).to_string.should eq("hello")
+  end
+
+  it "replaces %s inside string inside interpolation (#2178)" do
+    run(%(
+      require "prelude"
+
+      {% begin %}
+        %a = "world"
+        "hello \#{ %a }"
+      {% end %}
+      )).to_string.should eq("hello world")
+  end
+
+  it "replaces %s inside string inside interpolation, with braces (#2178)" do
+    run(%(
+      require "prelude"
+
+      {% begin %}
+        %a = "world"
+        "hello \#{ [{ %a, %a }, %a] }"
+      {% end %}
+      )).to_string.should eq(%(hello [{"world", "world"}, "world"]))
+  end
+
+  it "retains original yield expression (#2923)" do
+    run(%(
+      macro foo
+        def bar(baz)
+          {{yield}}
+        end
+      end
+
+      foo do
+        baz
+      end
+
+      bar("hi")
+      )).to_string.should eq("hi")
+  end
+
+  it "surrounds {{yield}} with begin/end" do
+    run(%(
+      macro foo
+        a = {{yield}}
+      end
+
+      a = 0
+      foo do
+        1
+        2
+      end
+      a
+      )).to_i.should eq(2)
+  end
+
+  it "initializes instance var in macro" do
+    run(%(
+      class Foo
+        {% begin %}
+          @x = 1
+        {% end %}
+      end
+
+      Foo.new.@x
+      ), inject_primitives: false).to_i.should eq(1)
+  end
+
+  it "initializes class var in macro" do
+    run(%(
+      class Foo
+        {% begin %}
+          @@x = 1
+        {% end %}
+
+        def self.x
+          @@x
+        end
+      end
+
+      Foo.x
+      ), inject_primitives: false).to_i.should eq(1)
   end
 end

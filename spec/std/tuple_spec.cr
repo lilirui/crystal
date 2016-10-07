@@ -1,7 +1,7 @@
 require "spec"
 
-class TupleSpecObj
-  getter x
+private class TupleSpecObj
+  getter x : Int32
 
   def initialize(@x)
   end
@@ -81,7 +81,7 @@ describe "Tuple" do
     a.should_not eq(d)
   end
 
-  it "does == with differnt types but same size" do
+  it "does == with different types but same size" do
     {1, 2}.should eq({1.0, 2.0})
   end
 
@@ -141,8 +141,37 @@ describe "Tuple" do
     u[1].should_not be(r2)
   end
 
-  it "does Tuple#new" do
+  it "does Tuple.new" do
     Tuple.new(1, 2, 3).should eq({1, 2, 3})
+    Tuple.new([1, 2, 3]).should eq({[1, 2, 3]})
+  end
+
+  it "does Tuple.from" do
+    t = Tuple(Int32, Float64).from([1_i32, 2.0_f64])
+    t.should eq({1_i32, 2.0_f64})
+    t.class.should eq(Tuple(Int32, Float64))
+
+    expect_raises ArgumentError do
+      Tuple(Int32).from([1, 2])
+    end
+
+    expect_raises(TypeCastError, /cast from String to Int32 failed/) do
+      Tuple(Int32, String).from(["foo", 1])
+    end
+  end
+
+  it "does Tuple#from" do
+    t = {Int32, Float64}.from([1_i32, 2.0_f64])
+    t.should eq({1_i32, 2.0_f64})
+    t.class.should eq(Tuple(Int32, Float64))
+
+    expect_raises ArgumentError do
+      {Int32}.from([1, 2])
+    end
+
+    expect_raises(TypeCastError, /cast from String to Int32 failed/) do
+      {Int32, String}.from(["foo", 1])
+    end
   end
 
   it "clones empty tuple" do
@@ -172,6 +201,28 @@ describe "Tuple" do
     {1, 2.5, "a", 'c'}.reverse.should eq({'c', "a", 2.5, 1})
   end
 
+  it "does reverse_each" do
+    str = ""
+    {"a", "b", "c"}.reverse_each do |i|
+      str += i
+    end
+    str.should eq("cba")
+  end
+
+  describe "reverse_each iterator" do
+    it "does next" do
+      a = {1, 2, 3}
+      iter = a.reverse_each
+      iter.next.should eq(3)
+      iter.next.should eq(2)
+      iter.next.should eq(1)
+      iter.next.should be_a(Iterator::Stop)
+
+      iter.rewind
+      iter.next.should eq(3)
+    end
+  end
+
   it "gets first element" do
     tuple = {1, 2.5}
     tuple.first.should eq(1)
@@ -196,5 +247,37 @@ describe "Tuple" do
     tuple.last?.should eq("a")
 
     Tuple.new.last?.should be_nil
+  end
+
+  it "does comparison" do
+    tuple1 = {"a", "a", "c"}
+    tuple2 = {"a", "b", "c"}
+    (tuple1 <=> tuple2).should eq(-1)
+    (tuple2 <=> tuple1).should eq(1)
+  end
+
+  it "does <=> for equality" do
+    tuple1 = {0, 1}
+    tuple2 = {0.0, 1}
+    (tuple1 <=> tuple2).should eq(0)
+  end
+
+  it "does <=> with the same beginning and different size" do
+    tuple1 = {1, 2, 3}
+    tuple2 = {1, 2}
+    (tuple1 <=> tuple2).should eq(1)
+  end
+
+  it "does types" do
+    tuple = {1, 'a', "hello"}
+    tuple.types.to_s.should eq("Tuple(Int32, Char, String)")
+  end
+
+  it "does ===" do
+    ({1, 2} === {1, 2}).should be_true
+    ({1, 2} === {1, 3}).should be_false
+    ({1, 2, 3} === {1, 2}).should be_false
+    ({/o+/, "bar"} === {"fox", "bar"}).should be_true
+    ({1, 2} === nil).should be_false
   end
 end

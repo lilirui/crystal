@@ -1,5 +1,10 @@
 @[Link("pthread")]
-@[Link("gc")]
+{% if flag?(:freebsd) %}
+  @[Link("gc-threaded")]
+{% else %}
+  @[Link("gc")]
+{% end %}
+
 lib LibGC
   alias Int = LibC::Int
   alias SizeT = LibC::SizeT
@@ -16,6 +21,9 @@ lib LibGC
   fun enable = GC_enable
   fun disable = GC_disable
   fun set_handle_fork = GC_set_handle_fork(value : Int)
+
+  fun base = GC_base(displaced_pointer : Void*) : Void*
+  fun general_register_disappearing_link = GC_general_register_disappearing_link(link : Void**, obj : Void*) : Int
 
   type Finalizer = Void*, Void* ->
   fun register_finalizer = GC_register_finalizer(obj : Void*, fn : Finalizer, cd : Void*, ofn : Finalizer*, ocd : Void**)
@@ -34,13 +42,20 @@ lib LibGC
   fun push_all_eager = GC_push_all_eager(bottom : Void*, top : Void*)
 
   $stackbottom = GC_stackbottom : Void*
-end
 
-# Boehm GC requires to use GC_pthread_create and GC_pthread_join instead of pthread_create and pthread_join
-lib LibPThread
-  fun create = GC_pthread_create(thread : Thread*, attr : Void*, start : Void* ->, arg : Void*) : LibC::Int
-  fun join = GC_pthread_join(thread : Thread, value : Void**) : LibC::Int
-  fun detach = GC_pthread_detach(thread : Thread) : LibC::Int
+  fun set_on_collection_event = GC_set_on_collection_event(cb : ->)
+
+  $gc_no = GC_gc_no : LibC::ULong
+  $bytes_found = GC_bytes_found : LibC::Long
+  # GC_on_collection_event isn't exported.  Can't collect totals without it.
+  # bytes_allocd, heap_size, unmapped_bytes are macros
+
+  fun size = GC_size(addr : Void*) : LibC::SizeT
+
+  # Boehm GC requires to use GC_pthread_create and GC_pthread_join instead of pthread_create and pthread_join
+  fun pthread_create = GC_pthread_create(thread : LibC::PthreadT*, attr : Void*, start : Void* ->, arg : Void*) : LibC::Int
+  fun pthread_join = GC_pthread_join(thread : LibC::PthreadT, value : Void**) : LibC::Int
+  fun pthread_detach = GC_pthread_detach(thread : LibC::PthreadT) : LibC::Int
 end
 
 # :nodoc:
@@ -80,21 +95,36 @@ module GC
     LibGC.free(pointer)
   end
 
-  def self.add_finalizer(object : T)
-    if object.responds_to?(:finalize)
-      LibGC.register_finalizer_ignore_self(object as Void*,
-        ->(obj, data) {
-          same_object = obj as T
-          if same_object.responds_to?(:finalize)
-            same_object.finalize
-          end
-        }, nil, nil, nil)
-      nil
-    end
+  def self.add_finalizer(object : Reference)
+    add_finalizer_impl(object)
+  end
+
+  def self.add_finalizer(object)
+    # Nothing
+  end
+
+  private def self.add_finalizer_impl(object : T) forall T
+    LibGC.register_finalizer_ignore_self(object.as(Void*),
+      ->(obj, data) { obj.as(T).finalize },
+      nil, nil, nil)
+    nil
   end
 
   def self.add_root(object : Reference)
-    roots = $roots ||= [] of Pointer(Void)
+    roots = @@roots ||= [] of Pointer(Void)
     roots << Pointer(Void).new(object.object_id)
+  end
+
+  def self.register_disappearing_link(pointer : Void**)
+    base = LibGC.base(pointer.value)
+    LibGC.general_register_disappearing_link(pointer, base)
+  end
+
+  record Stats,
+    collections : LibC::ULong,
+    bytes_found : LibC::Long
+
+  def self.stats
+    Stats.new LibGC.gc_no - 1, LibGC.bytes_found
   end
 end

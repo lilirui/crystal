@@ -2,7 +2,10 @@
 class IO::ARGF
   include IO
 
-  def initialize(@argv, @stdin)
+  @path : String?
+  @current_io : IO?
+
+  def initialize(@argv : Array(String), @stdin : IO)
     @path = nil
     @current_io = nil
     @initialized = false

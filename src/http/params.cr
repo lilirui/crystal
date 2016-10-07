@@ -3,11 +3,13 @@ require "uri"
 module HTTP
   # Represents a collection of http parameters and their respective values.
   struct Params
+    include Enumerable({String, String})
+
     # Parses an HTTP query string into a `HTTP::Params`
     #
-    #     HTTP::Params.parse("foo=bar&foo=baz&qux=zoo") 
+    #     HTTP::Params.parse("foo=bar&foo=baz&qux=zoo")
     #     #=> #<HTTP::Params @raw_params = {"foo" => ["bar", "baz"], "qux" => ["zoo"]}>
-    def self.parse(query : String)
+    def self.parse(query : String) : self
       parsed = {} of String => Array(String)
       parse(query) do |key, value|
         ary = parsed[key] ||= [] of String
@@ -22,14 +24,16 @@ module HTTP
     #       # ...
     #     end
     def self.parse(query : String)
+      return if query.empty?
+
       key = nil
-      buffer = StringIO.new
+      buffer = MemoryIO.new
 
       i = 0
       bytesize = query.bytesize
       while i < bytesize
         byte = query.unsafe_byte_at(i)
-        char = byte.chr
+        char = byte.unsafe_chr
 
         case char
         when '='
@@ -49,7 +53,7 @@ module HTTP
           key = nil
           i += 1
         else
-          i = URI.unescape_one query, bytesize, i, byte, char, buffer
+          i = decode_one_www_form_component query, bytesize, i, byte, char, buffer
         end
       end
 
@@ -57,6 +61,16 @@ module HTTP
         yield key.not_nil!, buffer.to_s
       else
         yield buffer.to_s, ""
+      end
+    end
+
+    # Creates an HTTP::Params instance from the key-value
+    # pairs of the given *hash*.
+    def self.from_hash(hash : Hash)
+      build do |builder|
+        hash.each do |key, value|
+          builder.add key, value
+        end
       end
     end
 
@@ -72,16 +86,17 @@ module HTTP
     #   form.add "name", "crystal"
     #   form.add "year", "2012 - today"
     # end
-    # params #=> "color=black&name=crystal&year=2012%20-%20today"
+    # params # => "color=black&name=crystal&year=2012%20-%20today"
     # ```
-    def self.build
+    def self.build : String
       form_builder = Builder.new
       yield form_builder
       form_builder.to_s
     end
 
     protected getter raw_params
-    def initialize(@raw_params)
+
+    def initialize(@raw_params : Hash(String, Array(String)))
     end
 
     def ==(other : self)
@@ -95,20 +110,30 @@ module HTTP
     # Returns first value for specified param name.
     #
     # ```
-    # params["email"]                # => "john@example.org"
-    # params["non_existent_param"]   # KeyError
+    # params["email"]              # => "john@example.org"
+    # params["non_existent_param"] # KeyError
     # ```
     def [](name)
       raw_params[name].first
     end
 
+    # Returns first value or nil for specified param name.
+    #
+    # ```
+    # params["email"]?              # => "john@example.org"
+    # params["non_existent_param"]? # nil
+    # ```
+    def []?(name)
+      fetch(name) { nil }
+    end
+
     # Returns true if param with provided name exists.
     #
     # ```
-    # params.has_key?("email")       # => true
-    # params.has_key?("garbage")     # => false
+    # params.has_key?("email")   # => true
+    # params.has_key?("garbage") # => false
     # ```
-    delegate has_key?, raw_params
+    delegate has_key?, to: raw_params
 
     # Sets first value for specified param name.
     #
@@ -123,7 +148,7 @@ module HTTP
     # Returns all values for specified param name.
     #
     # ```
-    # params.fetch_all("item")       # => ["pencil", "book", "workbook"]
+    # params.fetch_all("item") # => ["pencil", "book", "workbook"]
     # ```
     def fetch_all(name)
       raw_params.fetch(name) { [] of String }
@@ -132,8 +157,8 @@ module HTTP
     # Returns first value for specified param name.
     #
     # ```
-    # params.fetch("email")                # => "john@example.org"
-    # params.fetch("non_existent_param")   # KeyError
+    # params.fetch("email")              # => "john@example.org"
+    # params.fetch("non_existent_param") # KeyError
     # ```
     def fetch(name)
       raw_params.fetch(name).first
@@ -143,8 +168,8 @@ module HTTP
     # default value when there is no such param.
     #
     # ```
-    # params.fetch("email", "none@example.org")                # => "john@example.org"
-    # params.fetch("non_existent_param", "default value")      # => "default value"
+    # params.fetch("email", "none@example.org")           # => "john@example.org"
+    # params.fetch("non_existent_param", "default value") # => "default value"
     # ```
     def fetch(name, default)
       return default unless has_key?(name)
@@ -168,7 +193,7 @@ module HTTP
     #
     # ```
     # params.add("item", "keychain")
-    # params.fetch_all("item")        # => ["pencil", "book", "workbook", "keychain"]
+    # params.fetch_all("item") # => ["pencil", "book", "workbook", "keychain"]
     # ```
     def add(name, value)
       raw_params[name] ||= [] of String
@@ -180,7 +205,7 @@ module HTTP
     #
     # ```
     # params.set_all("item", ["keychain", "keynote"])
-    # params.fetch_all("item")        # => ["keychain", "keynote"]
+    # params.fetch_all("item") # => ["keychain", "keynote"]
     # ```
     def set_all(name, values)
       raw_params[name] = values
@@ -201,7 +226,7 @@ module HTTP
     def each
       raw_params.each do |name, values|
         values.each do |value|
-          yield(name, value)
+          yield({name, value})
         end
       end
     end
@@ -210,13 +235,13 @@ module HTTP
     # deletes param itself. Returns deleted value.
     #
     # ```
-    # params.delete("item")     # => "keychain"
-    # params.fetch_all("item")  # => ["keynote"]
+    # params.delete("item")    # => "keychain"
+    # params.fetch_all("item") # => ["keynote"]
     #
-    # params.delete("item")     # => "keynote"
-    # params["item"]            # KeyError
+    # params.delete("item") # => "keynote"
+    # params["item"]        # KeyError
     #
-    # params.delete("non_existent_param")  # KeyError
+    # params.delete("non_existent_param") # KeyError
     # ```
     def delete(name)
       value = raw_params[name].shift
@@ -228,8 +253,8 @@ module HTTP
     # values.
     #
     # ```
-    # params.delete_all("comments")   # => ["hello, world!", ":+1:"]
-    # params.has_key?("comments")     # => false
+    # params.delete_all("comments") # => ["hello, world!", ":+1:"]
+    # params.has_key?("comments")   # => false
     # ```
     def delete_all(name)
       raw_params.delete(name)
@@ -238,7 +263,7 @@ module HTTP
     # Serializes to string representation as http url encoded form
     #
     # ```
-    # params.to_s     # => "item=keychain&item=keynote&email=john@example.org"
+    # params.to_s # => "item=keychain&item=keynote&email=john@example.org"
     # ```
     def to_s(io)
       builder = Builder.new(io)
@@ -248,10 +273,21 @@ module HTTP
     end
 
     # :nodoc:
-    class Builder
-      @io :: IO
+    def self.encode_www_form_component(string : String, io : IO)
+      URI.escape(string, io, true)
+    end
 
-      def initialize(@io = StringIO.new)
+    # :nodoc:
+    def self.decode_one_www_form_component(query, bytesize, i, byte, char, buffer)
+      URI.unescape_one query, bytesize, i, byte, char, buffer, true
+    end
+
+    # :nodoc:
+    class Builder
+      @io : IO
+      @first : Bool
+
+      def initialize(@io = MemoryIO.new)
         @first = true
       end
 
@@ -260,7 +296,7 @@ module HTTP
         @first = false
         URI.escape key, @io
         @io << '='
-        URI.escape value, @io if value
+        Params.encode_www_form_component value, @io if value
         self
       end
 

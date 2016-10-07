@@ -1,8 +1,8 @@
 module Crystal
   class CrystalLLVMBuilder
-    property :end
+    property end : Bool
 
-    def initialize(@builder, @printf)
+    def initialize(@builder : LLVM::Builder, @printf : LLVM::Function)
       @end = false
     end
 
@@ -58,10 +58,10 @@ module Crystal
       @builder.to_unsafe
     end
 
-    macro method_missing(name, args, block)
+    macro method_missing(call)
       return llvm_nil if @end
 
-      @builder.{{name.id}}({{*args}}) {{block}}
+      @builder.{{call}}
     end
   end
 end

@@ -2,11 +2,11 @@ require "./codegen"
 
 class Crystal::CodeGenVisitor
   def visit(node : Asm)
-    constraints = StringIO.new
+    constraints = MemoryIO.new
 
     if ptrof = node.ptrof
       output = node.output.not_nil!
-      output_type = llvm_type((ptrof.type as PointerInstanceType).element_type)
+      output_type = llvm_type(ptrof.type.as(PointerInstanceType).element_type)
       constraints << output.constraint
     else
       output_type = LLVM::Void
@@ -41,7 +41,7 @@ class Crystal::CodeGenVisitor
     fun_type = LLVM::Type.function(input_types, output_type)
     constraints = constraints.to_s
 
-    value = LLVM.const_inline_asm(fun_type, node.text, constraints, node.volatile, node.alignstack)
+    value = LLVM.const_inline_asm(fun_type, node.text, constraints, node.volatile?, node.alignstack?)
     asm_value = call value, input_values
 
     if ptrof

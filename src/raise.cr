@@ -1,5 +1,7 @@
-# :nodoc:
-struct LEBReader
+require "c/stdio"
+require "c/stdlib"
+
+private struct LEBReader
   def initialize(@data : UInt8*)
   end
 
@@ -14,7 +16,7 @@ struct LEBReader
   end
 
   def read_uint32
-    value = (@data as UInt32*).value
+    value = @data.as(UInt32*).value
     @data += 4
     value
   end
@@ -24,7 +26,7 @@ struct LEBReader
     shift = 0
     while true
       byte = read_uint8
-      result |= ((0x7f_u64 & byte) << shift);
+      result |= ((0x7f_u64 & byte) << shift)
       break if (byte & 0x80_u8) == 0
       shift += 7
     end
@@ -41,11 +43,11 @@ fun __crystal_personality(version : Int32, actions : LibUnwind::Action, exceptio
   # puts "Personality - actions : #{actions}, start: #{start}, ip: #{ip}, throw_offset: #{throw_offset}"
 
   leb = LEBReader.new(lsd)
-  leb.read_uint8 # @LPStart encoding
+  leb.read_uint8               # @LPStart encoding
   if leb.read_uint8 != 0xff_u8 # @TType encoding
-    leb.read_uleb128 # @TType base offset
+    leb.read_uleb128           # @TType base offset
   end
-  leb.read_uint8 # CS Encoding
+  leb.read_uint8                     # CS Encoding
   cs_table_length = leb.read_uleb128 # CS table length
   cs_table_end = leb.data + cs_table_length
 
@@ -82,10 +84,8 @@ end
 @[Raises]
 fun __crystal_raise(unwind_ex : LibUnwind::Exception*) : NoReturn
   ret = LibUnwind.raise_exception(unwind_ex)
-  LibC.printf "Could not raise"
-  # caller.each do |point|
-    # puts point
-  # end
+  LibC.printf "Failed to raise an exception: %s\n", ret.to_s
+  CallStack.print_backtrace
   LibC.exit(ret)
 end
 
@@ -94,7 +94,8 @@ fun __crystal_get_exception(unwind_ex : LibUnwind::Exception*) : UInt64
   unwind_ex.value.exception_object
 end
 
-def raise(ex : Exception)
+def raise(ex : Exception) : NoReturn
+  ex.callstack = CallStack.new
   unwind_ex = Pointer(LibUnwind::Exception).malloc
   unwind_ex.value.exception_class = LibC::SizeT.zero
   unwind_ex.value.exception_cleanup = LibC::SizeT.zero
@@ -103,7 +104,7 @@ def raise(ex : Exception)
   __crystal_raise(unwind_ex)
 end
 
-def raise(message : String)
+def raise(message : String) : NoReturn
   raise Exception.new(message)
 end
 

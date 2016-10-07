@@ -1,6 +1,11 @@
+require "c/stdio"
+
 # :nodoc:
-struct String::Formatter
-  def initialize(string, @args, @io)
+struct String::Formatter(A)
+  @format_buf : Pointer(UInt8)?
+  @temp_buf : Pointer(UInt8)?
+
+  def initialize(string, @args : A, @io : IO)
     @reader = Char::Reader.new(string)
     @arg_index = 0
     @temp_buf_len = 0
@@ -40,8 +45,10 @@ struct String::Formatter
     arg = current_arg
     if arg.is_a?(Hash)
       @io << arg[key]
+    elsif arg.is_a?(NamedTuple) # TODO: join with || after 0.19
+      @io << arg[key]
     else
-      raise ArgumentError.new "one hash required"
+      raise ArgumentError.new "one hash or named tuple required"
     end
   end
 
@@ -51,8 +58,10 @@ struct String::Formatter
     arg = current_arg
     if arg.is_a?(Hash)
       target_arg = arg[key]
+    elsif arg.is_a?(NamedTuple) # TODO: join with || after 0.19
+      target_arg = arg[key]
     else
-      raise ArgumentError.new "one hash required"
+      raise ArgumentError.new "one hash or named tuple required"
     end
     flags = consume_flags
     consume_type flags, target_arg, true
@@ -104,21 +113,28 @@ struct String::Formatter
   end
 
   private def consume_width(flags)
-    if '1' <= current_char <= '9'
+    case current_char
+    when '1'..'9'
       num, size = consume_number
       flags.width = num
-      flags.width_size = size
+      flags.width_size
+    when '*'
+      flags.width = consume_dynamic_value
+      flags.width_size = 1
     end
     flags
   end
 
   private def consume_precision(flags)
     if current_char == '.'
-      next_char
-      if '1' <= current_char <= '9'
+      case next_char
+      when '1'..'9'
         num, size = consume_number
         flags.precision = num
-        flags.precision_size = size + 1
+        flags.precision_size = size
+      when '*'
+        flags.precision = consume_dynamic_value
+        flags.precision_size = 1
       else
         flags.precision = 0
         flags.precision_size = 1
@@ -127,13 +143,24 @@ struct String::Formatter
     flags
   end
 
+  private def consume_dynamic_value
+    value = current_arg
+    if value.is_a?(Int)
+      next_char
+      next_arg
+      value.to_i
+    else
+      raise ArgumentError.new("expected dynamic value '*' to be an Int - #{value.inspect} (#{value.class.inspect})")
+    end
+  end
+
   private def consume_number
     num = current_char - '0'
     size = 1
     next_char
     while true
       case char = current_char
-      when '0' .. '9'
+      when '0'..'9'
         num *= 10
         num += char - '0'
         size += 1
@@ -174,6 +201,10 @@ struct String::Formatter
 
   def string(flags, arg, arg_specified)
     arg = next_arg unless arg_specified
+
+    if precision = flags.precision
+      arg = arg.to_s[0...precision]
+    end
 
     pad arg.to_s.size, flags if flags.left_padding?
     @io << arg
@@ -216,8 +247,8 @@ struct String::Formatter
   def float(flags, arg, arg_specified)
     arg = next_arg unless arg_specified
 
-    if arg.responds_to?(:to_f)
-      float = arg.is_a?(Float) ? arg : arg.to_f
+    if arg.responds_to?(:to_f64)
+      float = arg.is_a?(Float64) ? arg : arg.to_f64
 
       format_buf = recreate_float_format_string(flags)
 
@@ -225,7 +256,7 @@ struct String::Formatter
       temp_buf = temp_buf(len)
       count = LibC.snprintf(temp_buf, len, format_buf, float)
 
-      @io.write Slice.new(temp_buf, count)
+      @io.write_utf8 Slice.new(temp_buf, count)
     else
       raise ArgumentError.new("expected a float, not #{arg.inspect}")
     end
@@ -323,9 +354,9 @@ struct String::Formatter
   end
 
   struct Flags
-    property space, sharp, plus, minus, zero, base
-    property width, width_size
-    property type, precision, precision_size
+    property space : Bool, sharp : Bool, plus : Bool, minus : Bool, zero : Bool, base : Int32
+    property width : Int32, width_size : Int32
+    property type : Char, precision : Int32?, precision_size : Int32
 
     def initialize
       @space = @sharp = @plus = @minus = @zero = false

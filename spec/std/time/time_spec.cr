@@ -151,6 +151,10 @@ describe Time do
     t = Time.new 2014, 10, 31, 21, 18, 13
     t2 = t - 1.month
     t2.to_s.should eq("2014-09-30 21:18:13")
+
+    t = Time.new 2014, 10, 31, 21, 18, 13
+    t2 = t + 6.month
+    t2.to_s.should eq("2015-04-30 21:18:13")
   end
 
   it "add years" do
@@ -232,9 +236,15 @@ describe Time do
   end
 
   it "gets unix epoch seconds" do
-    t1 = Time.new 2014, 10, 30, 21, 18, 13
+    t1 = Time.new 2014, 10, 30, 21, 18, 13, 0, Time::Kind::Utc
     t1.epoch.should eq(1414703893)
     t1.epoch_f.should be_close(1414703893, 1e-01)
+  end
+
+  it "gets unix epoch seconds at GMT" do
+    t1 = Time.now
+    t1.epoch.should eq(t1.to_utc.epoch)
+    t1.epoch_f.should be_close(t1.to_utc.epoch_f, 1e-01)
   end
 
   it "to_s" do
@@ -344,6 +354,9 @@ describe Time do
     t.to_s("%T").should eq(t.to_s("%H:%M:%S"))
 
     t.to_s("%Y-%m-hello").should eq("2014-01-hello")
+
+    t = Time.new 2014, 1, 2, 3, 4, 5, 6, kind: Time::Kind::Utc
+    t.to_s("%s").should eq("1388631845")
   end
 
   it "parses empty" do
@@ -398,6 +411,8 @@ describe Time do
   assert { Time.parse("11:12:13", "%T").to_s.should eq("0001-01-01 11:12:13") }
   assert { Time.parse("This was done on Friday, October 31, 2014", "This was done on %A, %B %d, %Y").to_s.should eq("2014-10-31 00:00:00") }
   assert { Time.parse("今は Friday, October 31, 2014", "今は %A, %B %d, %Y").to_s.should eq("2014-10-31 00:00:00") }
+  assert { Time.parse("epoch: 1459864667", "epoch: %s").epoch.should eq(1459864667) }
+  assert { Time.parse("epoch: -1459864667", "epoch: %s").epoch.should eq(-1459864667) }
 
   # TODO %N
   # TODO %Z
@@ -446,6 +461,12 @@ describe Time do
     time = Time.parse("2014-10-31 10:11:12 -060000 hi", "%F %T %z hi")
     time.local?.should be_true
     time.to_utc.to_s.should eq("2014-10-31 16:11:12 UTC")
+  end
+
+  it "parses microseconds" do
+    time = Time.parse("2016-09-09T17:03:28.456789+01:00", "%FT%T.%L%z").to_utc
+    time.to_s.should eq("2016-09-09 16:03:28 UTC")
+    time.millisecond.should eq(456)
   end
 
   it "parses the correct amount of digits (#853)" do
@@ -584,6 +605,29 @@ describe Time do
   it "compares different kinds" do
     time = Time.now
     (time.to_utc <=> time).should eq(0)
+  end
+
+  it %(changes timezone with ENV["TZ"]) do
+    old_tz = ENV["TZ"]?
+
+    begin
+      ENV["TZ"] = "America/New_York"
+      offset1 = Time.local_offset_in_minutes
+
+      ENV["TZ"] = "Europe/Berlin"
+      offset2 = Time.local_offset_in_minutes
+
+      offset1.should_not eq(offset2)
+    ensure
+      ENV["TZ"] = old_tz
+    end
+  end
+
+  it "does diff of utc vs local time" do
+    local = Time.now
+    utc = local.to_utc
+    (utc - local).should eq(0.seconds)
+    (local - utc).should eq(0.seconds)
   end
 
   typeof(Time.now.year)

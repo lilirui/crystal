@@ -1,8 +1,5 @@
 # Object is the base type of all Crystal objects.
 class Object
-  # Boolean-negates this object.
-  abstract def !
-
   # Returns true if this object is equal to `other`.
   #
   # Subclasses override this method to provide class-specific meaning.
@@ -17,10 +14,10 @@ class Object
     !(self == other)
   end
 
-  # TODO: uncomment after 0.8.0
-  # def !~(other)
-  #   !(self =~ other)
-  # end
+  # Shortcut to `!(self =~ other)`
+  def !~(other)
+    !(self =~ other)
+  end
 
   # Case equality.
   #
@@ -61,18 +58,6 @@ class Object
     nil
   end
 
-  # Comparison operator. Returns 0 if the two objects are equal,
-  # a negative number if this object is considered less than `other`,
-  # or a positive number otherwise.
-  #
-  # Subclasses define this method to provide class-specific ordering.
-  #
-  # ```
-  # # Sort in a descending way
-  # [4, 7, 2].sort { |x, y| x <=> y } #=> [7, 4, 2]
-  # ```
-  abstract def <=>(other)
-
   # Generates an `Int` hash value for this object.
   #
   # This method must have the property that `a == b` implies `a.hash == b.hash`.
@@ -99,7 +84,7 @@ class Object
   # as this will in turn call `to_s(io)` on it.
   abstract def to_s(io : IO)
 
-  # Returns a String representation of this object.
+  # Returns a `String` representation of this object.
   #
   # Similar to `to_s`, but usually returns more information about
   # this object.
@@ -128,10 +113,10 @@ class Object
   # in order to perform operations on intermediate results within the chain.
   #
   # ```
-  # (1..10)                .tap {|x| puts "original: #{x.inspect}"}
-  #   .to_a                .tap {|x| puts "array: #{x.inspect}"}
-  #   .select {|x| x%2==0} .tap {|x| puts "evens: #{x.inspect}"}
-  #   .map {|x| x*x}       .tap {|x| puts "squares: #{x.inspect}"}
+  # (1..10).tap { |x| puts "original: #{x.inspect}" }
+  #        .to_a.tap { |x| puts "array: #{x.inspect}" }
+  #             .select { |x| x % 2 == 0 }.tap { |x| puts "evens: #{x.inspect}" }
+  #                                       .map { |x| x*x }.tap { |x| puts "squares: #{x.inspect}" }
   # ```
   def tap
     yield self
@@ -160,23 +145,22 @@ class Object
   #
   # ```
   # str = "hello"
-  # str.itself.object_id == str.object_id #=> true
+  # str.itself.object_id == str.object_id # => true
   # ```
   def itself
     self
   end
 
   # Returns a shallow copy of this object.
-  # Not all objects implement this method.
-  abstract def dup
-
-  # Returns a deep copy of this object.
   #
-  # Object returns self, but subclasses override this method to provide
-  # specific clone behaviour.
-  def clone
-    self
-  end
+  # As a convention, `clone` is the method used to create a deep copy of
+  # an object, but this logic isn't defined generically for every type
+  # because cycles could be involved, and the clone logic might not need
+  # to clone everything.
+  #
+  # Many types in the standard library, like `Array`, `Hash`, `Set` and
+  # `Deque`, and all primitive types, define `dup` and `clone`.
+  abstract def dup
 
   # Defines getter methods for each of the given arguments.
   #
@@ -205,13 +189,127 @@ class Object
   #   getter :name, "age"
   # end
   # ```
-  macro getter(*names)
-    {% for name in names %}
-      {% name = name.var if name.is_a?(DeclareVar) %}
+  #
+  # If a type declaration is given, an instance variable with that name
+  # is declared with that type.
+  #
+  # ```
+  # class Person
+  #   getter name : String
+  # end
+  # ```
+  #
+  # Is the same as writing:
+  #
+  # ```
+  # class Person
+  #   @name : String
+  #
+  #   def name : String
+  #     @name
+  #   end
+  # end
+  # ```
+  #
+  # The type declaration can also include an initial value:
+  #
+  # ```
+  # class Person
+  #   getter name : String = "John Doe"
+  # end
+  # ```
+  #
+  # Is the same as writing:
+  #
+  # ```
+  # class Person
+  #   @name : String = "John Doe"
+  #
+  #   def name : String
+  #     @name
+  #   end
+  # end
+  # ```
+  #
+  # An assignment can be passed too, but in this case the type of the
+  # instance variable must be easily inferrable from the initial value:
+  #
+  # ```
+  # class Person
+  #   getter name = "John Doe"
+  # end
+  # ```
+  #
+  # Is the same as writing:
+  #
+  # ```
+  # class Person
+  #   @name = "John Doe"
+  #
+  #   def name : String
+  #     @name
+  #   end
+  # end
+  # ```
+  #
+  # If a block is given to the macro, a getter is generated
+  # with an instance variable that is lazily initialized with
+  # the block's contents:
+  #
+  # ```
+  # class Person
+  #   getter(birth_date) { Time.now }
+  # end
+  # ```
+  #
+  # Is the same as writing:
+  #
+  # ```
+  # class Person
+  #   def birth_date
+  #     @birth_date ||= Time.now
+  #   end
+  # end
+  # ```
+  macro getter(*names, &block)
+    {% if block %}
+      {% if names.size != 1 %}
+        {{ raise "only one argument can be passed to `getter` with a block" }}
+      {% end %}
 
-      def {{name.id}}
-        @{{name.id}}
-      end
+      {% name = names[0] %}
+
+      {% if name.is_a?(TypeDeclaration) %}
+        @{{name.var.id}} : {{name.type}}?
+
+        def {{name.var.id}}
+          @{{name.var.id}} ||= {{yield}}
+        end
+      {% else %}
+        def {{name.id}}
+          @{{name.id}} ||= {{yield}}
+        end
+      {% end %}
+    {% else %}
+      {% for name in names %}
+        {% if name.is_a?(TypeDeclaration) %}
+          @{{name}}
+
+          def {{name.var.id}} : {{name.type}}
+            @{{name.var.id}}
+          end
+        {% elsif name.is_a?(Assign) %}
+          @{{name}}
+
+          def {{name.target.id}}
+            @{{name.target.id}}
+          end
+        {% else %}
+          def {{name.id}}
+            @{{name.id}}
+          end
+        {% end %}
+      {% end %}
     {% end %}
   end
 
@@ -246,9 +344,37 @@ class Object
   #   getter! :name, "age"
   # end
   # ```
+  #
+  # If a type declaration is given, an instance variable with that name
+  # is declared with that type, as nilable.
+  #
+  # ```
+  # class Person
+  #   getter! name : String
+  # end
+  # ```
+  #
+  # is the same as writing:
+  #
+  # ```
+  # class Person
+  #   @name : String?
+  #
+  #   def name?
+  #     @name
+  #   end
+  #
+  #   def name
+  #     @name.not_nil!
+  #   end
+  # end
+  # ```
   macro getter!(*names)
     {% for name in names %}
-      {% name = name.var if name.is_a?(DeclareVar) %}
+      {% if name.is_a?(TypeDeclaration) %}
+        @{{name}}?
+        {% name = name.var %}
+      {% end %}
 
       def {{name.id}}?
         @{{name.id}}
@@ -266,7 +392,7 @@ class Object
   #
   # ```
   # class Person
-  #   getter? name
+  #   getter? happy
   # end
   # ```
   #
@@ -274,8 +400,8 @@ class Object
   #
   # ```
   # class Person
-  #   def name?
-  #     @name
+  #   def happy?
+  #     @happy
   #   end
   # end
   # ```
@@ -284,16 +410,90 @@ class Object
   #
   # ```
   # class Person
-  #   getter? :name, "age"
+  #   getter? :happy, "famous"
+  # end
+  # ```
+  #
+  # If a type declaration is given, an instance variable with that name
+  # is declared with that type.
+  #
+  # ```
+  # class Person
+  #   getter? happy : Bool
+  # end
+  # ```
+  #
+  # is the same as writing:
+  #
+  # ```
+  # class Person
+  #   @happy : Bool
+  #
+  #   def happy? : Bool
+  #     @happy
+  #   end
+  # end
+  # ```
+  #
+  # The type declaration can also include an initial value:
+  #
+  # ```
+  # class Person
+  #   getter? happy : Bool = true
+  # end
+  # ```
+  #
+  # Is the same as writing:
+  #
+  # ```
+  # class Person
+  #   @happy : Bool = true
+  #
+  #   def happy? : Bool
+  #     @happy
+  #   end
+  # end
+  # ```
+  #
+  # An assignment can be passed too, but in this case the type of the
+  # instance variable must be easily inferrable from the initial value:
+  #
+  # ```
+  # class Person
+  #   getter? happy = true
+  # end
+  # ```
+  #
+  # Is the same as writing:
+  #
+  # ```
+  # class Person
+  #   @happy = true
+  #
+  #   def happy?
+  #     @happy
+  #   end
   # end
   # ```
   macro getter?(*names)
     {% for name in names %}
-      {% name = name.var if name.is_a?(DeclareVar) %}
+      {% if name.is_a?(TypeDeclaration) %}
+        @{{name}}
 
-      def {{name.id}}?
-        @{{name.id}}
-      end
+        def {{name.var.id}}? : {{name.type}}
+          @{{name.var.id}}
+        end
+      {% elsif name.is_a?(Assign) %}
+        @{{name}}
+
+        def {{name.target.id}}?
+          @{{name.target.id}}
+        end
+      {% else %}
+        def {{name.id}}?
+          @{{name.id}}
+        end
+      {% end %}
     {% end %}
   end
 
@@ -323,10 +523,76 @@ class Object
   #   setter :name, "age"
   # end
   # ```
+  #
+  # If a type declaration is given, an instance variable with that name
+  # is declared with that type.
+  #
+  # ```
+  # class Person
+  #   setter name : String
+  # end
+  # ```
+  #
+  # is the same as writing:
+  #
+  # ```
+  # class Person
+  #   @name : String
+  #
+  #   def name=(@name : String)
+  #   end
+  # end
+  # ```
+  #
+  # The type declaration can also include an initial value:
+  #
+  # ```
+  # class Person
+  #   setter name : String = "John Doe"
+  # end
+  # ```
+  #
+  # Is the same as writing:
+  #
+  # ```
+  # class Person
+  #   @name : String = "John Doe"
+  #
+  #   def name=(@name : String)
+  #   end
+  # end
+  # ```
+  #
+  # An assignment can be passed too, but in this case the type of the
+  # instance variable must be easily inferrable from the initial value:
+  #
+  # ```
+  # class Person
+  #   setter name = "John Doe"
+  # end
+  # ```
+  #
+  # Is the same as writing:
+  #
+  # ```
+  # class Person
+  #   @name = "John Doe"
+  #
+  #   def name=(@name)
+  #   end
+  # end
+  # ```
   macro setter(*names)
     {% for name in names %}
-      {% if name.is_a?(DeclareVar) %}
+      {% if name.is_a?(TypeDeclaration) %}
+        @{{name}}
+
         def {{name.var.id}}=(@{{name.var.id}} : {{name.type}})
+        end
+      {% elsif name.is_a?(Assign) %}
+        @{{name}}
+
+        def {{name.target.id}}=(@{{name.target.id}})
         end
       {% else %}
         def {{name.id}}=(@{{name.id}})
@@ -365,9 +631,151 @@ class Object
   #   property :name, "age"
   # end
   # ```
-  macro property(*names)
-    getter {{*names}}
-    setter {{*names}}
+  #
+  # If a type declaration is given, an instance variable with that name
+  # is declared with that type.
+  #
+  # ```
+  # class Person
+  #   property name : String
+  # end
+  # ```
+  #
+  # Is the same as writing:
+  #
+  # ```
+  # class Person
+  #   @name : String
+  #
+  #   def name=(@name)
+  #   end
+  #
+  #   def name
+  #     @name
+  #   end
+  # end
+  # ```
+  #
+  # The type declaration can also include an initial value:
+  #
+  # ```
+  # class Person
+  #   property name : String = "John Doe"
+  # end
+  # ```
+  #
+  # Is the same as writing:
+  #
+  # ```
+  # class Person
+  #   @name : String = "John Doe"
+  #
+  #   def name=(@name : String)
+  #   end
+  #
+  #   def name
+  #     @name
+  #   end
+  # end
+  # ```
+  #
+  # An assignment can be passed too, but in this case the type of the
+  # instance variable must be easily inferrable from the initial value:
+  #
+  # ```
+  # class Person
+  #   property name = "John Doe"
+  # end
+  # ```
+  #
+  # Is the same as writing:
+  #
+  # ```
+  # class Person
+  #   @name = "John Doe"
+  #
+  #   def name=(@name : String)
+  #   end
+  #
+  #   def name
+  #     @name
+  #   end
+  # end
+  # ```
+  #
+  # If a block is given to the macro, a property is generated
+  # with an instance variable that is lazily initialized with
+  # the block's contents:
+  #
+  # ```
+  # class Person
+  #   property(birth_date) { Time.now }
+  # end
+  # ```
+  #
+  # Is the same as writing:
+  #
+  # ```
+  # class Person
+  #   def birth_date
+  #     @birth_date ||= Time.now
+  #   end
+  #
+  #   def birth_date=(@birth_date)
+  #   end
+  # end
+  # ```
+  macro property(*names, &block)
+    {% if block %}
+      {% if names.size != 1 %}
+        {{ raise "only one argument can be passed to `property` with a block" }}
+      {% end %}
+
+      {% name = names[0] %}
+
+      setter {{name}}
+
+      {% if name.is_a?(TypeDeclaration) %}
+        @{{name.var.id}} : {{name.type}}?
+
+        def {{name.var.id}}
+          @{{name.var.id}} ||= {{yield}}
+        end
+      {% else %}
+        def {{name.id}}
+          @{{name.id}} ||= {{yield}}
+        end
+      {% end %}
+    {% else %}
+      {% for name in names %}
+        {% if name.is_a?(TypeDeclaration) %}
+          @{{name}}
+
+          def {{name.var.id}} : {{name.type}}
+            @{{name.var.id}}
+          end
+
+          def {{name.var.id}}=(@{{name.var.id}} : {{name.type}})
+          end
+        {% elsif name.is_a?(Assign) %}
+          @{{name}}
+
+          def {{name.target.id}}
+            @{{name.target.id}}
+          end
+
+          def {{name.target.id}}=(@{{name.target.id}})
+          end
+        {% else %}
+          def {{name.id}}
+            @{{name.id}}
+          end
+
+          def {{name.id}}=(@{{name.id}})
+          end
+        {% end %}
+      {% end %}
+    {% end %}
   end
 
   # Defines raise-on-nil property methods for each of the given arguments.
@@ -404,9 +812,46 @@ class Object
   #   property! :name, "age"
   # end
   # ```
+  #
+  # If a type declaration is given, an instance variable with that name
+  # is declared with that type, as nilable.
+  #
+  # ```
+  # class Person
+  #   property! name : String
+  # end
+  # ```
+  #
+  # Is the same as writing:
+  #
+  # ```
+  # class Person
+  #   @name : String?
+  #
+  #   def name=(@name)
+  #   end
+  #
+  #   def name?
+  #     @name
+  #   end
+  #
+  #   def name
+  #     @name.not_nil!
+  #   end
+  # end
+  # ```
   macro property!(*names)
     getter! {{*names}}
-    setter {{*names}}
+
+    {% for name in names %}
+      {% if name.is_a?(TypeDeclaration) %}
+        def {{name.var.id}}=(@{{name.var.id}} : {{name.type}})
+        end
+      {% else %}
+        def {{name.id}}=(@{{name.id}})
+        end
+      {% end %}
+    {% end %}
   end
 
   # Defines query property methods for each of the given arguments.
@@ -415,7 +860,7 @@ class Object
   #
   # ```
   # class Person
-  #   property? name
+  #   property? happy
   # end
   # ```
   #
@@ -423,11 +868,11 @@ class Object
   #
   # ```
   # class Person
-  #   def name=(@name)
+  #   def happy=(@happy)
   #   end
   #
-  #   def name?
-  #     @name
+  #   def happy?
+  #     @happy
   #   end
   # end
   # ```
@@ -436,36 +881,148 @@ class Object
   #
   # ```
   # class Person
-  #   property? :name, "age"
+  #   property? :happy, "famous"
+  # end
+  # ```
+  #
+  # If a type declaration is given, an instance variable with that name
+  # is declared with that type.
+  #
+  # ```
+  # class Person
+  #   property? happy : Bool
+  # end
+  # ```
+  #
+  # Is the same as writing:
+  #
+  # ```
+  # class Person
+  #   @happy : Bool
+  #
+  #   def happy=(@happy)
+  #   end
+  #
+  #   def happy?
+  #     @happy
+  #   end
+  #
+  #   def happy
+  #     @happy.not_nil!
+  #   end
+  # end
+  # ```
+  #
+  # The type declaration can also include an initial value:
+  #
+  # ```
+  # class Person
+  #   property? happy : Bool = true
+  # end
+  # ```
+  #
+  # Is the same as writing:
+  #
+  # ```
+  # class Person
+  #   @happy : Bool = true
+  #
+  #   def happy=(@happy : Bool)
+  #   end
+  #
+  #   def happy? : Bool
+  #     @happy
+  #   end
+  # end
+  # ```
+  #
+  # An assignment can be passed too, but in this case the type of the
+  # instance variable must be easily inferrable from the initial value:
+  #
+  # ```
+  # class Person
+  #   property? happy = true
+  # end
+  # ```
+  #
+  # Is the same as writing:
+  #
+  # ```
+  # class Person
+  #   @happy = true
+  #
+  #   def happy=(@happy)
+  #   end
+  #
+  #   def happy?
+  #     @happy
+  #   end
   # end
   # ```
   macro property?(*names)
-    getter? {{*names}}
-    setter {{*names}}
+    {% for name in names %}
+      {% if name.is_a?(TypeDeclaration) %}
+        @{{name}}
+
+        def {{name.var.id}}? : {{name.type}}
+          @{{name.var.id}}
+        end
+
+        def {{name.var.id}}=(@{{name.var.id}} : {{name.type}})
+        end
+      {% elsif name.is_a?(Assign) %}
+        @{{name}}
+
+        def {{name.target.id}}?
+          @{{name.target.id}}
+        end
+
+        def {{name.target.id}}=(@{{name.target.id}})
+        end
+      {% else %}
+        def {{name.id}}?
+          @{{name.id}}
+        end
+
+        def {{name.id}}=(@{{name.id}})
+        end
+      {% end %}
+    {% end %}
   end
 
-  # Delegate method to to_object.
+  # Delegate *methods* to *to*.
   #
   # Note that due to current language limitations this is only useful
-  # when neither named arguments nor blocks are involved.
+  # when no captured blocks are involved.
   #
   # ```
   # class StringWrapper
-  #   def initialize(@string)
+  #   def initialize(@string : String)
   #   end
   #
-  #   delegate downcase, @string
-  #   delegate gsub, @string
+  #   delegate downcase, to: @string
+  #   delegate gsub, to: @string
+  #   delegate empty?, capitalize, to: @string
   # end
   #
   # wrapper = StringWrapper.new "HELLO"
-  # wrapper.downcase #=> "hello"
-  # wrapper.gsub(/E/, "A") #=> "HALLO"
+  # wrapper.downcase       # => "hello"
+  # wrapper.gsub(/E/, "A") # => "HALLO"
+  # wrapper.empty?         # => false
+  # wrapper.capitalize     # => "Hello"
   # ```
-  macro delegate(method, to_object)
-    def {{method.id}}(*args)
-      {{to_object.id}}.{{method.id}}(*args)
-    end
+  macro delegate(*methods, to object)
+    {% for method in methods %}
+      def {{method.id}}(*args, **options)
+        {{object.id}}.{{method.id}}(*args, **options)
+      end
+
+      def {{method.id}}(*args, **options)
+        {{object.id}}.{{method.id}}(*args, **options) do |*yield_args|
+          yield *yield_args
+        end
+      end
+    {% end %}
   end
 
   # Defines a `hash` method computed from the given fields.
@@ -535,6 +1092,7 @@ class Object
   end
 
   # Forwards missing methods to delegate.
+  #
   # ```
   # class StringWrapper
   #   def initialize(@string)
@@ -544,12 +1102,30 @@ class Object
   # end
   #
   # wrapper = StringWrapper.new "HELLO"
-  # wrapper.downcase #=> "hello"
-  # wrapper.gsub(/E/, "A") #=> "HALLO"
+  # wrapper.downcase       # => "hello"
+  # wrapper.gsub(/E/, "A") # => "HALLO"
   # ```
   macro forward_missing_to(delegate)
-    macro method_missing(name, args, block)
-      {{delegate}}.\{{name.id}}(\{{*args}}) \{{block}}
+    macro method_missing(call)
+      {{delegate}}.\{{call}}
+    end
+  end
+
+  # Defines a `clone` method that returns a copy of this
+  # object with all instance variables cloned (`clone` is
+  # in turn invoked on them).
+  macro def_clone
+    # Returns a copy of `self` with all instance variables cloned.
+    def clone
+      clone = \{{@type}}.allocate
+      clone.initialize_copy(self)
+      clone
+    end
+
+    protected def initialize_copy(other)
+      \{% for ivar in @type.instance_vars %}
+        @\{{ivar.id}} = other.@\{{ivar.id}}.clone
+      \{% end %}
     end
   end
 end

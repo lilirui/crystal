@@ -35,6 +35,13 @@ describe "Pointer" do
         p2[0].should eq(p1[0])
       end
     end
+
+    it "raises on negative count" do
+      p1 = Pointer.malloc(4, 0)
+      expect_raises(ArgumentError, "negative count") do
+        p1.copy_from(p1, -1)
+      end
+    end
   end
 
   describe "copy_to" do
@@ -44,6 +51,13 @@ describe "Pointer" do
       p1.copy_to(p2, 4)
       4.times do |i|
         p2[0].should eq(p1[0])
+      end
+    end
+
+    it "raises on negative count" do
+      p1 = Pointer.malloc(4, 0)
+      expect_raises(ArgumentError, "negative count") do
+        p1.copy_to(p1, -1)
       end
     end
   end
@@ -66,6 +80,13 @@ describe "Pointer" do
       p1[2].should eq(1)
       p1[3].should eq(2)
     end
+
+    it "raises on negative count" do
+      p1 = Pointer.malloc(4, 0)
+      expect_raises(ArgumentError, "negative count") do
+        p1.move_from(p1, -1)
+      end
+    end
   end
 
   describe "move_to" do
@@ -85,6 +106,13 @@ describe "Pointer" do
       p1[1].should eq(1)
       p1[2].should eq(1)
       p1[3].should eq(2)
+    end
+
+    it "raises on negative count" do
+      p1 = Pointer.malloc(4, 0)
+      expect_raises(ArgumentError, "negative count") do
+        p1.move_to(p1, -1)
+      end
     end
   end
 
@@ -118,7 +146,7 @@ describe "Pointer" do
   end
 
   it "shuffles!" do
-    a = Pointer(Int32).malloc(3) { |i| i + 1}
+    a = Pointer(Int32).malloc(3) { |i| i + 1 }
     a.shuffle!(3)
 
     (a[0] + a[1] + a[2]).should eq(6)
@@ -129,7 +157,7 @@ describe "Pointer" do
   end
 
   it "maps!" do
-    a = Pointer(Int32).malloc(3) { |i| i + 1}
+    a = Pointer(Int32).malloc(3) { |i| i + 1 }
     a.map!(3) { |i| i + 1 }
     a[0].should eq(2)
     a[1].should eq(3)
@@ -239,5 +267,15 @@ describe "Pointer" do
       ptr[3].should eq(0)
       ptr[3].should_not be_nil
     end
+  end
+
+  it "does !" do
+    (!Pointer(Int32).null).should be_true
+    (!Pointer(Int32).new(123)).should be_false
+  end
+
+  it "clones" do
+    ptr = Pointer(Int32).new(123)
+    ptr.clone.should eq(ptr)
   end
 end

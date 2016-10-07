@@ -1,3 +1,5 @@
+# Implementation of the `crystal init` command
+
 require "ecr/macros"
 require "option_parser"
 
@@ -9,19 +11,21 @@ module Crystal
       config = Config.new
 
       OptionParser.parse(args) do |opts|
-        opts.banner = %{USAGE: crystal init TYPE NAME [DIR]
+        opts.banner = <<-USAGE
+          Usage: crystal init TYPE NAME [DIR]
 
-TYPE is one of:
-    lib                      creates library skeleton
-    app                      creates application skeleton
+          TYPE is one of:
+              lib                      creates library skeleton
+              app                      creates application skeleton
 
-NAME - name of project to be generated,
-       eg: example
-DIR  - directory where project will be generated,
-       default: NAME, eg: ./custom/path/example
-}
+          NAME - name of project to be generated,
+                 eg: example
+          DIR  - directory where project will be generated,
+                 default: NAME, eg: ./custom/path/example
 
-        opts.on("--help", "Shows this message") do
+          USAGE
+
+        opts.on("--help", "show this help") do
           puts opts
           exit
         end
@@ -29,7 +33,7 @@ DIR  - directory where project will be generated,
         opts.unknown_args do |args, after_dash|
           config.skeleton_type = fetch_skeleton_type(opts, args)
           config.name = fetch_name(opts, args)
-          config.dir = args.empty? ? config.name : args.shift
+          config.dir = fetch_directory(args, config.name)
         end
       end
 
@@ -57,12 +61,16 @@ DIR  - directory where project will be generated,
     end
 
     def self.fetch_name(opts, args)
-      name = fetch_required_parameter(opts, args, "NAME")
-      if Dir.exists?(name) || File.exists?(name)
-        puts "file or directory #{name} already exists"
+      fetch_required_parameter(opts, args, "NAME")
+    end
+
+    def self.fetch_directory(args, project_name)
+      directory = args.empty? ? project_name : args.shift
+      if Dir.exists?(directory) || File.exists?(directory)
+        puts "file or directory #{directory} already exists"
         exit 1
       end
-      name
+      directory
     end
 
     def self.fetch_skeleton_type(opts, args)
@@ -85,13 +93,13 @@ DIR  - directory where project will be generated,
     end
 
     class Config
-      property skeleton_type
-      property name
-      property dir
-      property author
-      property email
-      property github_name
-      property silent
+      property skeleton_type : String
+      property name : String
+      property dir : String
+      property author : String
+      property email : String
+      property github_name : String
+      property silent : Bool
 
       def initialize(
                      @skeleton_type = "none",
@@ -100,13 +108,12 @@ DIR  - directory where project will be generated,
                      @author = "none",
                      @email = "none",
                      @github_name = "none",
-                     @silent = false
-                    )
+                     @silent = false)
       end
     end
 
     abstract class View
-      getter config
+      getter config : Config
 
       @@views = [] of View.class
 
@@ -139,9 +146,9 @@ DIR  - directory where project will be generated,
     end
 
     class InitProject
-      getter config
+      getter config : Config
 
-      def initialize(@config)
+      def initialize(@config : Config)
       end
 
       def run
@@ -175,7 +182,7 @@ DIR  - directory where project will be generated,
 
     macro template(name, template_path, full_path)
       class {{name.id}} < View
-        ecr_file "{{TEMPLATE_DIR.id}}/{{template_path.id}}"
+        ECR.def_to_s "{{TEMPLATE_DIR.id}}/{{template_path.id}}"
         def full_path
           "#{config.dir}/#{{{full_path}}}"
         end

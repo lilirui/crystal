@@ -17,6 +17,13 @@ describe "ENV" do
     ENV["FOO"]?.should eq("1")
   end
 
+  it "sets to nil (same as delete)" do
+    ENV["FOO"] = "1"
+    ENV["FOO"]?.should_not be_nil
+    ENV["FOO"] = nil
+    ENV["FOO"]?.should be_nil
+  end
+
   it "does has_key?" do
     ENV["FOO"] = "1"
     ENV.has_key?("BAR").should be_false
@@ -31,16 +38,16 @@ describe "ENV" do
   end
 
   it "does .keys" do
-    %w[FOO BAR].each {|k| ENV.keys.should_not contain(k) }
+    %w(FOO BAR).each { |k| ENV.keys.should_not contain(k) }
     ENV["FOO"] = ENV["BAR"] = "1"
-    %w[FOO BAR].each {|k| ENV.keys.should contain(k) }
+    %w(FOO BAR).each { |k| ENV.keys.should contain(k) }
   end
 
   it "does .values" do
-    [1,2].each {|i| ENV.values.should_not contain("SOMEVALUE_#{i}") }
+    [1, 2].each { |i| ENV.values.should_not contain("SOMEVALUE_#{i}") }
     ENV["FOO"] = "SOMEVALUE_1"
     ENV["BAR"] = "SOMEVALUE_2"
-    [1,2].each {|i| ENV.values.should contain("SOMEVALUE_#{i}") }
+    [1, 2].each { |i| ENV.values.should contain("SOMEVALUE_#{i}") }
   end
 
   describe "fetch" do

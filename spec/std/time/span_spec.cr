@@ -116,7 +116,7 @@ describe Time::Span do
   it "test add" do
     t1 = Time::Span.new 2, 3, 4, 5, 6
     t2 = Time::Span.new 1, 2, 3, 4, 5
-    t3 = t1 + t2;
+    t3 = t1 + t2
 
     t3.days.should eq(3)
     t3.hours.should eq(5)
@@ -189,6 +189,24 @@ describe Time::Span do
     # TODO check overflow
   end
 
+  it "test multiply" do
+    t1 = Time::Span.new 5, 4, 3, 2, 1
+    t2 = t1 * 61
+
+    t2.should eq(Time::Span.new 315, 7, 5, 2, 61)
+
+    # TODO check overflow
+  end
+
+  it "test divide" do
+    t1 = Time::Span.new 3, 3, 3, 3, 3
+    t2 = t1 / 2
+
+    t2.should eq(Time::Span.new(1, 13, 31, 31, 501) + Time::Span.new(5000))
+
+    # TODO check overflow
+  end
+
   it "test to_s" do
     t1 = Time::Span.new 1, 2, 3, 4, 5
     t2 = -t1
@@ -209,5 +227,9 @@ describe Time::Span do
     t1.total_milliseconds.should be_close(9.3784e+07, 1e+01)
     t1.to_f.should be_close(93784, 1e-01)
     t1.to_i.should eq(93784)
+  end
+
+  it "should sum" do
+    [1.second, 5.seconds].sum.should eq(6.seconds)
   end
 end

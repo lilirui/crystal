@@ -1,3 +1,5 @@
+require "./enumerable"
+
 # An Iterator allows processing sequences lazily, as opposed to `Enumerable` which processes
 # sequences eagerly and produces an `Array` in most of its methods.
 #
@@ -5,7 +7,7 @@
 # multiplied by three. One way to do this is:
 #
 # ```
-# (1..10_000_000).select(&.even?).map { |x| x * 3 }.take(3) #=> [6, 12, 18]
+# (1..10_000_000).select(&.even?).map { |x| x * 3 }.first(3) # => [6, 12, 18]
 # ```
 #
 # The above works, but creates many intermediate arrays: one for the *select* call,
@@ -14,7 +16,7 @@
 # lazily:
 #
 # ```
-# (1..10_000_000).each.select(&.even?).map { |x| x * 3 }.take(3) #=> #< Iterator(T)::Take...
+# (1..10_000_000).each.select(&.even?).map { |x| x * 3 }.first(3) # => #< Iterator(T)::First...
 # ```
 #
 # Iterator redefines many of `Enumerable`'s method in a lazy way, returning iterators
@@ -24,7 +26,7 @@
 # using `each` or `Enumerable#to_a`:
 #
 # ```
-# (1..10_000_000).each.select(&.even?).map { |x| x * 3 }.take(3).to_a #=> [6, 12, 18]
+# (1..10_000_000).each.select(&.even?).map { |x| x * 3 }.first(3).to_a # => [6, 12, 18]
 # ```
 #
 # To implement an Iterator you need to define a `next` method that must return the next
@@ -60,10 +62,10 @@
 # end
 #
 # zeros = Zeros.new(5)
-# zeros.to_a            #=> [0, 0, 0, 0, 0]
+# zeros.to_a # => [0, 0, 0, 0, 0]
 #
 # zeros.rewind
-# zeros.take(3).to_a    #=> [0, 0, 0]
+# zeros.first(3).to_a # => [0, 0, 0]
 # ```
 #
 # The standard library provides iterators for many classes, like `Array`, `Hash`, `Range`, `String` and `IO`.
@@ -112,8 +114,7 @@ module Iterator(T)
     Singleton(T).new(element)
   end
 
-  # :nodoc:
-  struct Singleton(T)
+  private struct Singleton(T)
     include Iterator(T)
 
     def initialize(@element : T)
@@ -132,8 +133,7 @@ module Iterator(T)
     SingletonProc(T).new(block)
   end
 
-  # :nodoc:
-  struct SingletonProc(T)
+  private struct SingletonProc(T)
     include Iterator(T)
 
     def initialize(@proc : -> T)
@@ -161,35 +161,34 @@ module Iterator(T)
   #     iter.next # => 'b'
   #     iter.next # => Iterator::Stop::INSTANCE
   #
-  def chain(other : Iterator(U))
+  def chain(other : Iterator(U)) forall U
     Chain(typeof(self), typeof(other), T, U).new(self, other)
   end
 
-  # :nodoc:
-  class Chain(I1, I2, T1, T2)
+  private class Chain(I1, I2, T1, T2)
     include Iterator(T1 | T2)
 
-    def initialize(@iterator_1, @iterator_2)
-      @iterator_1_consumed = false
+    def initialize(@iterator1 : I1, @iterator2 : I2)
+      @iterator1_consumed = false
     end
 
     def next
-      if @iterator_1_consumed
-        @iterator_2.next
+      if @iterator1_consumed
+        @iterator2.next
       else
-        value = @iterator_1.next
+        value = @iterator1.next
         if value.is_a?(Stop)
-          @iterator_1_consumed = true
-          value = @iterator_2.next
+          @iterator1_consumed = true
+          value = @iterator2.next
         end
         value
       end
     end
 
     def rewind
-      @iterator_1.rewind
-      @iterator_2.rewind
-      @iterator_1_consumed = false
+      @iterator1.rewind
+      @iterator2.rewind
+      @iterator1_consumed = false
     end
   end
 
@@ -202,16 +201,15 @@ module Iterator(T)
   #     iter.next # => 4
   #     iter.next # => Iterator::Stop::INSTANCE
   #
-  def compact_map(&func : T -> U)
+  def compact_map(&func : T -> _)
     CompactMap(typeof(self), T, typeof(func.call(first).not_nil!)).new(self, func)
   end
 
-  # :nodoc:
-  struct CompactMap(I, T, U)
+  private struct CompactMap(I, T, U)
     include Iterator(U)
     include IteratorWrapper
 
-    def initialize(@iterator : Iterator(T), @func)
+    def initialize(@iterator : I, @func : T -> U?)
     end
 
     def next
@@ -232,17 +230,16 @@ module Iterator(T)
   #     iter.next # => [3, 4, 5]
   #     iter.next # => Iterator::Stop::INSTANCE
   #
-  def cons(n)
+  def cons(n : Int)
     raise ArgumentError.new "invalid cons size: #{n}" if n <= 0
-    Cons(typeof(self), T).new(self, n)
+    Cons(typeof(self), T, typeof(n)).new(self, n)
   end
 
-  # :nodoc:
-  struct Cons(I, T)
+  private struct Cons(I, T, N)
     include Iterator(Array(T))
     include IteratorWrapper
 
-    def initialize(@iterator : Iterator(T), @n)
+    def initialize(@iterator : I, @n : N)
       @values = Array(T).new(@n)
     end
 
@@ -278,12 +275,11 @@ module Iterator(T)
     Cycle(typeof(self), T).new(self)
   end
 
-  # :nodoc:
-  struct Cycle(I, T)
+  private struct Cycle(I, T)
     include Iterator(T)
     include IteratorWrapper
 
-    def initialize(@iterator : Iterator(T))
+    def initialize(@iterator : I)
     end
 
     def next
@@ -313,12 +309,11 @@ module Iterator(T)
     CycleN(typeof(self), T, typeof(n)).new(self, n)
   end
 
-  # :nodoc:
-  class CycleN(I, T, N)
+  private class CycleN(I, T, N)
     include Iterator(T)
     include IteratorWrapper
 
-    def initialize(@iterator : Iterator(T), @n : N)
+    def initialize(@iterator : I, @n : N)
       @count = 0
     end
 
@@ -373,6 +368,8 @@ module Iterator(T)
     slice(n)
   end
 
+  # TODO: with the new global type inference algorithm we can't yet express this type.
+  #
   # Returns an iterator that flattens nested iterators into a single iterator
   # whose type is the union of the simple types of all of the nested iterators
   # (and their nested iterators, and so on).
@@ -384,79 +381,84 @@ module Iterator(T)
   #     iter.next # => 'b'
   #     iter.next # => Iterator::Stop::INSTANCE
   #
-  def flatten
-    Flatten(typeof(Flatten.element_type(self))).new(self)
-  end
+  # def flatten
+  #   Flatten(self, typeof(Flatten.element_type(self))).new(self)
+  # end
 
-  # :nodoc:
-  class Flatten(T1)
-    include Iterator(T1)
+  # private class Flatten(I, T1)
+  #   include Iterator(T1)
 
-    def initialize(@iterator)
-      @generator = @iterator
-      @top = true
-      @to_rewind = [] of Proc(Nil)
-    end
+  #   @iterator : I
+  #   @top : Bool
+  #   @to_rewind : Array(Proc(Nil))
 
-    def next
-      value = @generator.next
-      if value.is_a?(Stop)
-        if @top
-          return stop
-        else
-          @generator = @iterator
-          @top = true
-          return self.next
-        end
-      end
+  #   # @generator : I
 
-      flatten value
-    end
+  #   def initialize(@iterator)
+  #     @generator = @iterator
+  #     @top = true
+  #     @to_rewind = [] of Proc(Nil)
+  #   end
 
-    def make_rewinder iter
-      ->{
-        iter.rewind
-        # Return nil to disguise the individual iterator types
-        nil
-      }
-    end
+  #   def next
+  #     value = @generator.next
+  #     if value.is_a?(Stop)
+  #       if @top
+  #         return stop
+  #       else
+  #         @generator = @iterator
+  #         @top = true
+  #         return self.next
+  #       end
+  #     end
 
-    def rewind
-      @iterator.rewind
-      @generator = @iterator
-      @top = true
-      @to_rewind.each &.call
-      @to_rewind.clear()
-    end
+  #     flatten value
+  #   end
 
-    def flatten(element)
-      case element
-      when Iterator
-        flat = element.flatten
-        @generator = flat
-        @to_rewind << make_rewinder flat
-        @top = false
-        self.next
-      when Iterable
-        flatten element.each
-      else
-        element
-      end
-    end
+  #   def make_rewinder(iter)
+  #     ->{
+  #       iter.rewind
+  #       # Return nil to disguise the individual iterator types
+  #       nil
+  #     }
+  #   end
 
-    def self.element_type(element)
-      case element
-      when Stop
-        raise ""
-      when Iterator
-        element_type(element.next)
-      when Iterable
-        element_type(element.each)
-      else
-        element
-      end
-    end
-  end
+  #   def rewind
+  #     @iterator.rewind
+  #     @generator = @iterator
+  #     @top = true
+  #     @to_rewind.each &.call
+  #     @to_rewind.clear
+  #   end
+
+  #   def flatten(element)
+  #     case element
+  #     when Iterator
+  #       flat = element.flatten
+  #       @generator = flat
+  #       @to_rewind << make_rewinder flat
+  #       @top = false
+  #       self.next
+  #     when Iterable
+  #       flatten element.each
+  #     else
+  #       element
+  #     end
+  #   end
+
+  #   def self.element_type(element)
+  #     case element
+  #     when Stop
+  #       raise ""
+  #     when Iterator
+  #       element_type(element.next)
+  #     when Iterable
+  #       element_type(element.each)
+  #     else
+  #       element
+  #     end
+  #   end
+  # end
 
   # Returns an iterator that chunks the iterator's elements in arrays of *size*
   # filling up the remaining elements if no element remains with nil or a given
@@ -477,12 +479,11 @@ module Iterator(T)
     InGroupsOf(typeof(self), T, typeof(size), typeof(filled_up_with)).new(self, size, filled_up_with)
   end
 
-  # :nodoc:
-  struct InGroupsOf(I, T, N, U)
+  private struct InGroupsOf(I, T, N, U)
     include Iterator(Array(T | U))
     include IteratorWrapper
 
-    def initialize(@iterator : Iterator(T), @size : N, @filled_up_with : U)
+    def initialize(@iterator : I, @size : N, @filled_up_with : U)
     end
 
     def next
@@ -508,16 +509,15 @@ module Iterator(T)
   #     iter.next # => 6
   #     iter.next # => Iterator::Stop::INSTANCE
   #
-  def map(&func : T -> U)
+  def map(&func : T -> U) forall U
     Map(typeof(self), T, U).new(self, func)
   end
 
-  # :nodoc:
-  struct Map(I, T, U)
+  private struct Map(I, T, U)
     include Iterator(U)
     include IteratorWrapper
 
-    def initialize(@iterator : Iterator(T), @func : T -> U)
+    def initialize(@iterator : I, @func : T -> U)
     end
 
     def next
@@ -533,16 +533,15 @@ module Iterator(T)
   #     iter.next # => 2
   #     iter.next # => Iterator::Stop::INSTANCE
   #
-  def reject(&func : T -> U)
+  def reject(&func : T -> U) forall U
     Reject(typeof(self), T, U).new(self, func)
   end
 
-  # :nodoc:
-  struct Reject(I, T, B)
+  private struct Reject(I, T, B)
     include Iterator(T)
     include IteratorWrapper
 
-    def initialize(@iterator : Iterator(T), @func : T -> B)
+    def initialize(@iterator : I, @func : T -> B)
     end
 
     def next
@@ -563,16 +562,15 @@ module Iterator(T)
   #     iter.next # => 3
   #     iter.next # => Iterator::Stop::INSTANCE
   #
-  def select(&func : T -> U)
+  def select(&func : T -> U) forall U
     Select(typeof(self), T, U).new(self, func)
   end
 
-  # :nodoc:
-  struct Select(I, T, B)
+  private struct Select(I, T, B)
     include Iterator(T)
     include IteratorWrapper
 
-    def initialize(@iterator : Iterator(T), @func : T -> B)
+    def initialize(@iterator : I, @func : T -> B)
     end
 
     def next
@@ -592,17 +590,16 @@ module Iterator(T)
   #     iter.next # -> 3
   #     iter.next # -> Iterator::Stop::INSTANCE
   #
-  def skip(n)
+  def skip(n : Int)
     raise ArgumentError.new "Attempted to skip negative size: #{n}" if n < 0
-    Skip(typeof(self), T).new(self, n)
+    Skip(typeof(self), T, typeof(n)).new(self, n)
   end
 
-  # :nodoc:
-  class Skip(I, T)
+  private class Skip(I, T, N)
     include Iterator(T)
     include IteratorWrapper
 
-    def initialize(@iterator : Iterator(T), @n : Int)
+    def initialize(@iterator : I, @n : N)
       @original = @n
     end
 
@@ -629,16 +626,15 @@ module Iterator(T)
   #     iter.next # => 0
   #     iter.next # => Iterator::Stop::INSTANCE
   #
-  def skip_while(&func : T -> U)
+  def skip_while(&func : T -> U) forall U
     SkipWhile(typeof(self), T, U).new(self, func)
   end
 
-  # :nodoc:
-  class SkipWhile(I, T, U)
+  private class SkipWhile(I, T, U)
     include Iterator(T)
     include IteratorWrapper
 
-    def initialize(@iterator : Iterator(T), @func : T -> U)
+    def initialize(@iterator : I, @func : T -> U)
       @returned_false = false
     end
 
@@ -668,17 +664,16 @@ module Iterator(T)
   #     iter.next # => [7, 8, 9]
   #     iter.next # => Iterator::Stop::INSTANCE
   #
-  def slice(n)
+  def slice(n : Int)
     raise ArgumentError.new "invalid slice size: #{n}" if n <= 0
-    Slice(typeof(self), T).new(self, n)
+    Slice(typeof(self), T, typeof(n)).new(self, n)
   end
 
-  # :nodoc:
-  struct Slice(I, T)
+  private struct Slice(I, T, N)
     include Iterator(Array(T))
     include IteratorWrapper
 
-    def initialize(@iterator : Iterator(T), @n)
+    def initialize(@iterator : I, @n : N)
     end
 
     def next
@@ -698,26 +693,57 @@ module Iterator(T)
     end
   end
 
+  # Returns an iterator that only returns every *n*th element, starting with the
+  # first.
+  #
+  #     iter = (1..6).each.step(2)
+  #     iter.next # => 1
+  #     iter.next # => 3
+  #     iter.next # => 5
+  #     iter.next # => Iterator::Stop::INSTANCE
+  #
+  def step(n : Int)
+    Step(self, T, typeof(n)).new(self, n)
+  end
+
+  private struct Step(I, T, N)
+    include Iterator(T)
+    include IteratorWrapper
+
+    def initialize(@iterator : I, @n : N)
+      raise ArgumentError.new("n must be greater or equal 1") if @n < 1
+    end
+
+    def next
+      value = @iterator.next
+      return stop if value.is_a?(Stop)
+
+      (@n - 1).times do
+        @iterator.next
+      end
+
+      value
+    end
+  end
 
   # Returns an iterator that only returns the first n elements of the
   # initial iterator.
   #
-  #     iter = ["a", "b", "c"].each.take 2
+  #     iter = ["a", "b", "c"].each.first 2
   #     iter.next # => "a"
   #     iter.next # => "b"
   #     iter.next # => Iterator::Stop::INSTANCE
   #
-  def take(n)
+  def first(n : Int)
     raise ArgumentError.new "Attempted to take negative size: #{n}" if n < 0
-    Take(typeof(self), T).new(self, n)
+    First(typeof(self), T, typeof(n)).new(self, n)
   end
 
-  # :nodoc:
-  class Take(I, T)
+  private class First(I, T, N)
     include Iterator(T)
     include IteratorWrapper
 
-    def initialize(@iterator : Iterator(T), @n : Int)
+    def initialize(@iterator : I, @n : N)
       @original = @n
     end
 
@@ -744,16 +770,15 @@ module Iterator(T)
   #     iter.next # => 2
   #     iter.next # => Iterator::Stop::INSTANCE
   #
-  def take_while(&func : T -> U)
+  def take_while(&func : T -> U) forall U
     TakeWhile(typeof(self), T, U).new(self, func)
   end
 
-  # :nodoc:
-  class TakeWhile(I, T, U)
+  private class TakeWhile(I, T, U)
     include Iterator(T)
     include IteratorWrapper
 
-    def initialize(@iterator : Iterator(T), @func : T -> U)
+    def initialize(@iterator : I, @func : T -> U)
       @returned_false = false
     end
 
@@ -791,12 +816,11 @@ module Iterator(T)
     Tap(typeof(self), T).new(self, block)
   end
 
-  # :nodoc:
-  struct Tap(I, T)
+  private struct Tap(I, T)
     include Iterator(T)
     include IteratorWrapper
 
-    def initialize(@iterator, @proc)
+    def initialize(@iterator : I, @proc : T ->)
     end
 
     def next
@@ -827,16 +851,15 @@ module Iterator(T)
   #     iter.next # => ["b", "a"]
   #     iter.next # => Iterator::Stop::INSTANCE
   #
-  def uniq(&func : T -> U)
+  def uniq(&func : T -> U) forall U
     Uniq(typeof(self), T, U).new(self, func)
   end
 
-  # :nodoc:
-  struct Uniq(I, T, U)
+  private struct Uniq(I, T, U)
     include Iterator(T)
     include IteratorWrapper
 
-    def initialize(@iterator : Iterator(T), @func : T -> U)
+    def initialize(@iterator : I, @func : T -> U)
       @hash = {} of T => Bool
     end
 
@@ -866,16 +889,15 @@ module Iterator(T)
   #     iter.next # => {3, 2}
   #     iter.next # => Iterator::Stop::INSTANCE
   #
-  def with_index(offset = 0)
-    WithIndex(typeof(self), T).new(self, offset)
+  def with_index(offset : Int = 0)
+    WithIndex(typeof(self), T, typeof(offset)).new(self, offset)
   end
 
-  # :nodoc:
-  class WithIndex(I, T)
+  private class WithIndex(I, T, O)
     include Iterator({T, Int32})
     include IteratorWrapper
 
-    def initialize(@iterator : Iterator(T), @offset, @index = offset)
+    def initialize(@iterator : I, @offset : O, @index : O = offset)
     end
 
     def next
@@ -903,12 +925,11 @@ module Iterator(T)
     WithObject(typeof(self), T, typeof(obj)).new(self, obj)
   end
 
-  # :nodoc:
-  struct WithObject(I, T, O)
+  private struct WithObject(I, T, O)
     include Iterator({T, O})
     include IteratorWrapper
 
-    def initialize(@iterator : Iterator(T), @object : O)
+    def initialize(@iterator : I, @object : O)
     end
 
     def next
@@ -918,7 +939,7 @@ module Iterator(T)
   end
 
   # Returns an iterator that returns the elements of this iterator and the given
-  # one pairwise as tupels.
+  # one pairwise as tuples.
   #
   #    iter1 = [4, 5, 6].each
   #    iter2 = [7, 8, 9].each
@@ -928,15 +949,14 @@ module Iterator(T)
   #    iter.next # => {6, 9}
   #    iter.next # => Iterator::Stop::INSTANCE
   #
-  def zip(other : Iterator(U))
+  def zip(other : Iterator(U)) forall U
     Zip(typeof(self), typeof(other), T, U).new(self, other)
   end
 
-  # :nodoc:
-  struct Zip(I1, I2, T1, T2)
+  private struct Zip(I1, I2, T1, T2)
     include Iterator({T1, T2})
 
-    def initialize(@iterator1, @iterator2)
+    def initialize(@iterator1 : I1, @iterator2 : I2)
     end
 
     def next

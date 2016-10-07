@@ -32,14 +32,16 @@ class Reference
     false
   end
 
-  # Returns false: a reference is never nil.
-  def nil?
-    false
-  end
-
-  # Returns false: a reference is always truthy.
-  def !
-    false
+  # Returns a shallow copy of this object.
+  #
+  # This allocates a new object and copies the contents of
+  # `self` into it.
+  def dup
+    {% begin %}
+      dup = {{@type}}.allocate
+      dup.as(Void*).copy_from(self.as(Void*), instance_sizeof({{@type}}))
+      dup
+    {% end %}
   end
 
   # Returns this reference's `object_id` as the hash value.
@@ -47,8 +49,8 @@ class Reference
     object_id
   end
 
-  macro def inspect(io : IO) : Nil
-    io << "#<{{@type.name.id}}:0x"
+  def inspect(io : IO) : Nil
+    io << "#<" << {{@type.name.id.stringify}} << ":0x"
     object_id.to_s(16, io)
 
     executed = exec_recursive(:inspect) do
@@ -67,16 +69,22 @@ class Reference
     nil
   end
 
-  macro def to_s(io : IO) : Nil
-    io << "#<{{@type.name.id}}:0x"
+  def to_s(io : IO) : Nil
+    io << "#<" << self.class.name << ":0x"
     object_id.to_s(16, io)
     io << ">"
     nil
   end
 
+  # :nodoc:
+  module ExecRecursive
+    def self.hash
+      @@exec_recursive ||= {} of {UInt64, Symbol} => Bool
+    end
+  end
+
   private def exec_recursive(method)
-    # hash = (@[ThreadLocal] $_exec_recursive ||= {} of Tuple(UInt64, Symbol) => Bool)
-    hash = ($_exec_recursive ||= {} of Tuple(UInt64, Symbol) => Bool)
+    hash = ExecRecursive.hash
     key = {object_id, method}
     if hash[key]?
       false

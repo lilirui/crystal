@@ -1,3 +1,5 @@
+require "./lib_llvm"
+
 struct LLVM::DIBuilder
   def initialize(llvm_module)
     @unwrap = LibLLVMExt.create_di_builder(llvm_module)
@@ -12,7 +14,7 @@ struct LLVM::DIBuilder
   end
 
   def get_or_create_type_array(types : Array(LibLLVMExt::Metadata))
-    LibLLVMExt.di_builder_get_or_create_type_array(self, types.buffer, types.size)
+    LibLLVMExt.di_builder_get_or_create_type_array(self, types, types.size)
   end
 
   def create_subroutine_type(file, parameter_types)
@@ -30,7 +32,7 @@ struct LLVM::DIBuilder
   def create_function(scope, name, linkage_name, file, line, composite_type, is_local_to_unit, is_definition,
                       scope_line, flags, is_optimized, func)
     LibLLVMExt.di_builder_create_function(self, scope, name, linkage_name, file, line, composite_type, is_local_to_unit, is_definition,
-                                          scope_line, flags, is_optimized, func)
+      scope_line, flags, is_optimized, func)
   end
 
   def create_local_variable(tag, scope, name, file, line, type)
@@ -41,12 +43,18 @@ struct LLVM::DIBuilder
     LibLLVMExt.di_builder_create_expression(self, addr, length)
   end
 
+  {% if LibLLVM::IS_36 || LibLLVM::IS_35 %}
   def insert_declare_at_end(storage, var_info, expr, block)
     LibLLVMExt.di_builder_insert_declare_at_end(self, storage, var_info, expr, block)
   end
+  {% else %}
+  def insert_declare_at_end(storage, var_info, expr, dl, block)
+    LibLLVMExt.di_builder_insert_declare_at_end(self, storage, var_info, expr, dl, block)
+  end
+  {% end %}
 
   def get_or_create_array(elements : Array(LibLLVMExt::Metadata))
-    LibLLVMExt.di_builder_get_or_create_array(self, elements.buffer, elements.size)
+    LibLLVMExt.di_builder_get_or_create_array(self, elements, elements.size)
   end
 
   def create_enumerator(name, value)
@@ -56,6 +64,28 @@ struct LLVM::DIBuilder
   def create_enumeration_type(scope, name, file, line_number, size_in_bits, align_in_bits, elements, underlying_type)
     LibLLVMExt.di_builder_create_enumeration_type(self, scope, name, file, line_number, size_in_bits,
       align_in_bits, elements, underlying_type)
+  end
+
+  def create_struct_type(scope, name, file, line, size_in_bits, align_in_bits, flags, derived_from, element_types)
+    LibLLVMExt.di_builder_create_struct_type(self, scope, name, file, line, size_in_bits, align_in_bits,
+      flags, derived_from, element_types)
+  end
+
+  def create_member_type(scope, name, file, line, size_in_bits, align_in_bits, offset_in_bits, flags, ty)
+    LibLLVMExt.di_builder_create_member_type(self, scope, name, file, line, size_in_bits, align_in_bits,
+      offset_in_bits, flags, ty)
+  end
+
+  def create_pointer_type(pointee, size_in_bits, align_in_bits, name)
+    LibLLVMExt.di_builder_create_pointer_type(self, pointee, size_in_bits, align_in_bits, name)
+  end
+
+  def temporary_md_node(context)
+    LibLLVMExt.temporary_md_node(context, nil, 0).as(LibLLVMExt::Metadata)
+  end
+
+  def replace_all_uses(from, to)
+    LibLLVMExt.metadata_replace_all_uses_with(from, to)
   end
 
   def finalize

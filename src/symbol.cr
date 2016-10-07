@@ -10,10 +10,17 @@
 #
 # Internally a symbol is represented as an `Int32`, so it's very efficient.
 #
-# You can't dynamically create symbols: when you compile your program each symbol
+# You can't dynamically create symbols. When you compile your program, each symbol
 # gets assigned a unique number.
 struct Symbol
   include Comparable(Symbol)
+
+  # Generates an `Int32` hash value for this symbol.
+  #
+  # See `Object#hash`.
+  def hash : Int32
+    to_i
+  end
 
   # Compares symbol with other based on `String#<=>` method. Returns -1, 0
   # or +1 depending on whether symbol is less than, equal to, or greater than
@@ -54,16 +61,20 @@ struct Symbol
   # Symbol.needs_quotes? "string"      # => false
   # Symbol.needs_quotes? "long string" # => true
   # ```
-  def self.needs_quotes?(string)
+  def self.needs_quotes?(string) : Bool
     case string
     when "+", "-", "*", "/", "==", "<", "<=", ">", ">=", "!", "!=", "=~", "!~"
       # Nothing
     when "&", "|", "^", "~", "**", ">>", "<<", "%", "[]", "<=>", "===", "[]?", "[]="
       # Nothing
     else
-      string.each_char do |char|
+      string.each_char_with_index do |char, i|
+        if i == 0 && char.digit?
+          return true
+        end
+
         case char
-        when '0'..'9', 'A'..'Z', 'a'..'z', '_'
+        when .alphanumeric?, '_'
           # Nothing
         else
           return true
@@ -71,5 +82,9 @@ struct Symbol
       end
     end
     false
+  end
+
+  def clone
+    self
   end
 end
